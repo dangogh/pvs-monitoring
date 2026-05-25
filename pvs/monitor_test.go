@@ -1,6 +1,9 @@
 package pvs
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -126,6 +129,96 @@ func TestReadingPower(t *testing.T) {
 			got := tt.r.Power()
 			if got != tt.want {
 				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// fakeReader returns a fixed sequence of notifications, then an error.
+type fakeReader struct {
+	notifications []notification
+	idx           int
+	finalErr      error
+}
+
+func (f *fakeReader) read(_ context.Context, n *notification) error {
+	if f.idx >= len(f.notifications) {
+		return f.finalErr
+	}
+	*n = f.notifications[f.idx]
+	f.idx++
+	return nil
+}
+
+func TestRunLoop(t *testing.T) {
+	ts := int64(1779680954)
+	sentinel := errors.New("done")
+
+	tests := []struct {
+		name          string
+		notifications []notification
+		wantReading   *Reading
+		wantErr       error
+	}{
+		{
+			name: "power notification updates current",
+			notifications: []notification{
+				{
+					Notification: "power",
+					Params: notificationParams{
+						Time: ts, SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92,
+						SolarKWh: 94400.05, NetKWh: -29376.45, LoadKWh: 65023.6,
+					},
+				},
+			},
+			wantReading: &Reading{
+				Time: time.Unix(ts, 0), SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92,
+				SolarKWh: 94400.05, NetKWh: -29376.45, LoadKWh: 65023.6,
+			},
+			wantErr: sentinel,
+		},
+		{
+			name: "non-power notification is ignored",
+			notifications: []notification{
+				{Notification: "status"},
+				{
+					Notification: "power",
+					Params:       notificationParams{Time: ts, SolarKW: 1.0},
+				},
+			},
+			wantReading: &Reading{Time: time.Unix(ts, 0), SolarKW: 1.0},
+			wantErr:     sentinel,
+		},
+		{
+			name:        "reader error propagates",
+			wantReading: nil,
+			wantErr:     sentinel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewMonitor("", slog.New(slog.NewTextHandler(nil, nil)))
+			r := &fakeReader{notifications: tt.notifications, finalErr: tt.wantErr}
+			err := m.runLoop(context.Background(), r)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err: got %v, want %v", err, tt.wantErr)
+			}
+			got := m.Current()
+			if tt.wantReading == nil {
+				if got != nil {
+					t.Errorf("expected nil current, got %+v", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("expected non-nil current, got nil")
+			}
+			if !got.Time.Equal(tt.wantReading.Time) {
+				t.Errorf("Time: got %v, want %v", got.Time, tt.wantReading.Time)
+			}
+			if got.SolarKW != tt.wantReading.SolarKW {
+				t.Errorf("SolarKW: got %v, want %v", got.SolarKW, tt.wantReading.SolarKW)
 			}
 		})
 	}
