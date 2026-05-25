@@ -11,7 +11,17 @@ import (
 
 	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/pvs"
+	"github.com/dangogh/pvs-monitoring/store/sqlite"
 )
+
+func defaultDBPath() string {
+	home, _ := os.UserHomeDir()
+	base := os.Getenv("XDG_DATA_HOME")
+	if base == "" {
+		base = home + "/.local/share"
+	}
+	return base + "/pvs-monitor/readings.db"
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -21,10 +31,11 @@ func main() {
 }
 
 func run() error {
-	var cfgPath, addr string
+	var cfgPath, addr, dbPath string
 	var verbose bool
 	flag.StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
 	flag.StringVar(&addr, "addr", "", "PVS6 WebSocket address (overrides config and PVS_ADDR)")
+	flag.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database (empty to disable)")
 	flag.BoolVar(&verbose, "verbose", false, "enable debug logging")
 	flag.BoolVar(&verbose, "v", false, "enable debug logging (shorthand)")
 	flag.Parse()
@@ -47,7 +58,18 @@ func run() error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	monitor := pvs.NewMonitor(cfg.Addr, cfg, logger)
+	var store pvs.Store
+	if dbPath != "" {
+		s, err := sqlite.Open(dbPath)
+		if err != nil {
+			return fmt.Errorf("open db: %w", err)
+		}
+		defer s.Close()
+		store = s
+		logger.Info("sqlite store opened", "path", dbPath)
+	}
+
+	monitor := pvs.NewMonitor(cfg.Addr, cfg, store, logger)
 
 	ctx := context.Background()
 
