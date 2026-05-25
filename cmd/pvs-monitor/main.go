@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/dangogh/pvs-monitoring/pvs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/dangogh/pvs-monitoring/config"
+	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
 func main() {
@@ -19,22 +21,36 @@ func main() {
 }
 
 func run() error {
-	addr := flag.String("addr", "ws://192.168.191.155:9002", "PVS6 WebSocket address")
-	verbose := flag.Bool("verbose", false, "enable debug logging")
-	flag.BoolVar(verbose, "v", false, "enable debug logging (shorthand)")
+	var cfgPath, addr string
+	var verbose bool
+	flag.StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
+	flag.StringVar(&addr, "addr", "", "PVS6 WebSocket address (overrides config and PVS_ADDR)")
+	flag.BoolVar(&verbose, "verbose", false, "enable debug logging")
+	flag.BoolVar(&verbose, "v", false, "enable debug logging (shorthand)")
 	flag.Parse()
 
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	// Precedence: flag > env > config file > default.
+	if addr != "" {
+		cfg.Addr = addr
+	} else if env := os.Getenv("PVS_ADDR"); env != "" {
+		cfg.Addr = env
+	}
+
 	level := slog.LevelInfo
-	if *verbose {
+	if verbose {
 		level = slog.LevelDebug
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	monitor := pvs.NewMonitor(*addr, logger)
+	monitor := pvs.NewMonitor(cfg.Addr, logger)
 
 	ctx := context.Background()
 
-	// Run the WebSocket monitor in the background.
 	monCtx, cancelMon := context.WithCancel(ctx)
 	defer cancelMon()
 	go func() {
@@ -46,6 +62,6 @@ func run() error {
 	server := mcp.NewServer(&mcp.Implementation{Name: "pvs-monitor", Version: "0.1.0"}, nil)
 	pvs.RegisterTools(server, monitor)
 
-	logger.Info("pvs-monitor starting", "addr", *addr)
+	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
