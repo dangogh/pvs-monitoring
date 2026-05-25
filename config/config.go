@@ -31,6 +31,7 @@ type Config struct {
 	Addr                     string   `yaml:"addr"`
 	ReconnectInitialInterval Duration `yaml:"reconnect_initial_interval"`
 	ReconnectMaxInterval     Duration `yaml:"reconnect_max_interval"`
+	StaleThreshold           Duration `yaml:"stale_threshold"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -39,6 +40,7 @@ func Default() Config {
 		Addr:                     defaultAddr,
 		ReconnectInitialInterval: Duration(time.Second),
 		ReconnectMaxInterval:     Duration(30 * time.Second),
+		StaleThreshold:           Duration(5 * time.Second),
 	}
 }
 
