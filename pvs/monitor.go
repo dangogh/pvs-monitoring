@@ -85,6 +85,20 @@ func (p notificationParams) toReading() *Reading {
 	}
 }
 
+// notificationReader is the interface for reading a stream of notifications.
+type notificationReader interface {
+	read(ctx context.Context, n *notification) error
+}
+
+// wsReader wraps a WebSocket connection as a notificationReader.
+type wsReader struct {
+	conn *websocket.Conn
+}
+
+func (w *wsReader) read(ctx context.Context, n *notification) error {
+	return wsjson.Read(ctx, w.conn, n)
+}
+
 // Monitor connects to a PVS6 WebSocket and keeps the latest Reading.
 type Monitor struct {
 	addr   string
@@ -107,21 +121,24 @@ func (m *Monitor) Run(ctx context.Context) error {
 		return fmt.Errorf("dial %s: %w", m.addr, err)
 	}
 	defer conn.CloseNow()
+	return m.runLoop(ctx, &wsReader{conn: conn})
+}
 
+func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 	for {
 		var n notification
-		if err := wsjson.Read(ctx, conn, &n); err != nil {
+		if err := r.read(ctx, &n); err != nil {
 			return fmt.Errorf("read: %w", err)
 		}
 		if n.Notification != "power" {
 			m.logger.Debug("ignoring notification", "type", n.Notification)
 			continue
 		}
-		r := n.Params.toReading()
+		reading := n.Params.toReading()
 		m.mu.Lock()
-		m.current = r
+		m.current = reading
 		m.mu.Unlock()
-		m.logger.Debug("reading updated", "solar_kw", r.SolarKW, "load_kw", r.LoadKW, "net_kw", r.NetKW)
+		m.logger.Debug("reading updated", "solar_kw", reading.SolarKW, "load_kw", reading.LoadKW, "net_kw", reading.NetKW)
 	}
 }
 
