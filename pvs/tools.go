@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,10 +26,21 @@ func RegisterTools(s *mcp.Server, m *Monitor) {
 	})
 }
 
-func currentPower(m *Monitor) (*mcp.CallToolResult, any, error) {
+func currentReading(m *Monitor) (*Reading, error) {
 	r := m.Current()
 	if r == nil {
-		return nil, nil, fmt.Errorf("no reading available yet")
+		return nil, fmt.Errorf("no reading available yet")
+	}
+	if r.IsStale(m.StaleThreshold()) {
+		return nil, fmt.Errorf("reading is stale (last received %s ago)", time.Since(r.ReceivedAt).Round(time.Second))
+	}
+	return r, nil
+}
+
+func currentPower(m *Monitor) (*mcp.CallToolResult, any, error) {
+	r, err := currentReading(m)
+	if err != nil {
+		return nil, nil, err
 	}
 	data, err := json.Marshal(r.Power())
 	if err != nil {
@@ -40,9 +52,9 @@ func currentPower(m *Monitor) (*mcp.CallToolResult, any, error) {
 }
 
 func energySummary(m *Monitor) (*mcp.CallToolResult, any, error) {
-	r := m.Current()
-	if r == nil {
-		return nil, nil, fmt.Errorf("no reading available yet")
+	r, err := currentReading(m)
+	if err != nil {
+		return nil, nil, err
 	}
 	data, err := json.Marshal(r.Energy())
 	if err != nil {

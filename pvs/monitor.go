@@ -15,13 +15,19 @@ import (
 
 // Reading holds the most recent power snapshot from the PVS6.
 type Reading struct {
-	Time     time.Time
-	SolarKW  float64 // pv_p
-	LoadKW   float64 // site_load_p
-	NetKW    float64 // net_p (positive = drawing, negative = exporting)
-	SolarKWh float64 // pv_en
-	NetKWh   float64 // net_en
-	LoadKWh  float64 // site_load_en
+	Time       time.Time
+	ReceivedAt time.Time
+	SolarKW    float64 // pv_p
+	LoadKW     float64 // site_load_p
+	NetKW      float64 // net_p (positive = drawing, negative = exporting)
+	SolarKWh   float64 // pv_en
+	NetKWh     float64 // net_en
+	LoadKWh    float64 // site_load_en
+}
+
+// IsStale reports whether the reading is older than threshold.
+func (r *Reading) IsStale(threshold time.Duration) bool {
+	return time.Since(r.ReceivedAt) > threshold
 }
 
 // PowerJSON is the JSON representation of instantaneous power fields.
@@ -106,6 +112,7 @@ type Monitor struct {
 	addr             string
 	reconnectInitial time.Duration
 	reconnectMax     time.Duration
+	staleThreshold   time.Duration
 	logger           *slog.Logger
 
 	mu      sync.RWMutex
@@ -118,6 +125,7 @@ func NewMonitor(addr string, cfg config.Config, logger *slog.Logger) *Monitor {
 		addr:             addr,
 		reconnectInitial: cfg.ReconnectInitialInterval.Duration(),
 		reconnectMax:     cfg.ReconnectMaxInterval.Duration(),
+		staleThreshold:   cfg.StaleThreshold.Duration(),
 		logger:           logger,
 	}
 }
@@ -165,6 +173,7 @@ func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 			continue
 		}
 		reading := n.Params.toReading()
+		reading.ReceivedAt = time.Now()
 		m.mu.Lock()
 		m.current = reading
 		m.mu.Unlock()
@@ -177,4 +186,9 @@ func (m *Monitor) Current() *Reading {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.current
+}
+
+// StaleThreshold returns the configured staleness threshold.
+func (m *Monitor) StaleThreshold() time.Duration {
+	return m.staleThreshold
 }
