@@ -9,6 +9,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/dangogh/pvs-monitoring/config"
 )
 
 // Reading holds the most recent power snapshot from the PVS6.
@@ -101,21 +103,49 @@ func (w *wsReader) read(ctx context.Context, n *notification) error {
 
 // Monitor connects to a PVS6 WebSocket and keeps the latest Reading.
 type Monitor struct {
-	addr   string
-	logger *slog.Logger
+	addr             string
+	reconnectInitial time.Duration
+	reconnectMax     time.Duration
+	logger           *slog.Logger
 
 	mu      sync.RWMutex
 	current *Reading
 }
 
 // NewMonitor creates a Monitor targeting the given WebSocket address.
-func NewMonitor(addr string, logger *slog.Logger) *Monitor {
-	return &Monitor{addr: addr, logger: logger}
+func NewMonitor(addr string, cfg config.Config, logger *slog.Logger) *Monitor {
+	return &Monitor{
+		addr:             addr,
+		reconnectInitial: cfg.ReconnectInitialInterval.Duration(),
+		reconnectMax:     cfg.ReconnectMaxInterval.Duration(),
+		logger:           logger,
+	}
 }
 
-// Run connects and streams readings until ctx is cancelled.
+// Run connects and streams readings, reconnecting with exponential backoff
+// until ctx is cancelled.
 func (m *Monitor) Run(ctx context.Context) error {
-	m.logger.Debug("connecting to PVS6", "addr", m.addr)
+	backoff := m.reconnectInitial
+	for {
+		m.logger.Debug("connecting to PVS6", "addr", m.addr)
+		err := m.connect(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		m.logger.Error("connection lost, reconnecting", "err", err, "backoff", backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > m.reconnectMax {
+			backoff = m.reconnectMax
+		}
+	}
+}
+
+func (m *Monitor) connect(ctx context.Context) error {
 	conn, _, err := websocket.Dial(ctx, m.addr, nil)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", m.addr, err)

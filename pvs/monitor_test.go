@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/dangogh/pvs-monitoring/config"
 )
 
 func TestNotificationParamsToReading(t *testing.T) {
@@ -198,7 +200,7 @@ func TestRunLoop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := NewMonitor("", slog.New(slog.NewTextHandler(nil, nil)))
+			m := NewMonitor("", config.Default(), slog.New(slog.NewTextHandler(nil, nil)))
 			r := &fakeReader{notifications: tt.notifications, finalErr: tt.wantErr}
 			err := m.runLoop(context.Background(), r)
 			if !errors.Is(err, tt.wantErr) {

@@ -47,7 +47,7 @@ func run() error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	monitor := pvs.NewMonitor(cfg.Addr, logger)
+	monitor := pvs.NewMonitor(cfg.Addr, cfg, logger)
 
 	ctx := context.Background()
 
