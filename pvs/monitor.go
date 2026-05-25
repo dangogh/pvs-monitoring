@@ -114,19 +114,22 @@ type Monitor struct {
 	reconnectMax     time.Duration
 	staleThreshold   time.Duration
 	logger           *slog.Logger
+	store            Store
 
 	mu      sync.RWMutex
 	current *Reading
 }
 
 // NewMonitor creates a Monitor targeting the given WebSocket address.
-func NewMonitor(addr string, cfg config.Config, logger *slog.Logger) *Monitor {
+// store may be nil to disable persistence.
+func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger) *Monitor {
 	return &Monitor{
 		addr:             addr,
 		reconnectInitial: cfg.ReconnectInitialInterval.Duration(),
 		reconnectMax:     cfg.ReconnectMaxInterval.Duration(),
 		staleThreshold:   cfg.StaleThreshold.Duration(),
 		logger:           logger,
+		store:            store,
 	}
 }
 
@@ -178,6 +181,11 @@ func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 		m.current = reading
 		m.mu.Unlock()
 		m.logger.Debug("reading updated", "solar_kw", reading.SolarKW, "load_kw", reading.LoadKW, "net_kw", reading.NetKW)
+		if m.store != nil {
+			if err := m.store.SaveReading(ctx, reading); err != nil {
+				m.logger.Error("store save failed", "err", err)
+			}
+		}
 	}
 }
 
