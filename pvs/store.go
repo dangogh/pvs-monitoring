@@ -17,5 +17,7 @@ type PowerAvg struct {
 type Store interface {
 	SaveReading(ctx context.Context, r *Reading) error
 	AveragePower(ctx context.Context, since time.Time) (PowerAvg, error)
+	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
+	LatestDevices(ctx context.Context) ([]Device, error)
 	Close() error
 }
