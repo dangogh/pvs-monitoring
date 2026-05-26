@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -121,7 +122,7 @@ func (wsDialer) dial(ctx context.Context, addr string) (notificationReader, func
 	if err != nil {
 		return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
 	}
-	return &wsReader{conn: conn}, func() { conn.CloseNow() }, nil
+	return &wsReader{conn: conn}, func() { _ = conn.CloseNow() }, nil
 }
 
 // Monitor connects to a PVS6 WebSocket and keeps the latest Reading.
@@ -130,12 +131,16 @@ type Monitor struct {
 	reconnectInitial time.Duration
 	reconnectMax     time.Duration
 	staleThreshold   time.Duration
+	statsInterval    time.Duration
 	logger           *slog.Logger
 	store            Store
 	dialer           dialer
 
 	mu      sync.RWMutex
 	current *Reading
+
+	totalAdded    atomic.Int64
+	intervalAdded atomic.Int64
 }
 
 // NewMonitor creates a Monitor targeting the given WebSocket address.
@@ -146,6 +151,7 @@ func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger
 		reconnectInitial: cfg.ReconnectInitialInterval.Duration(),
 		reconnectMax:     cfg.ReconnectMaxInterval.Duration(),
 		staleThreshold:   cfg.StaleThreshold.Duration(),
+		statsInterval:    5 * time.Minute,
 		logger:           logger,
 		store:            store,
 		dialer:           wsDialer{},
@@ -155,6 +161,7 @@ func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger
 // Run connects and streams readings, reconnecting with exponential backoff
 // until ctx is cancelled.
 func (m *Monitor) Run(ctx context.Context) error {
+	go m.runStats(ctx)
 	backoff := m.reconnectInitial
 	for {
 		m.logger.Debug("connecting to PVS6", "addr", m.addr)
@@ -208,10 +215,36 @@ func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 			"net_kwh", reading.NetKWh,
 			"reading_time", reading.Time.Format(time.RFC3339),
 		)
+		m.totalAdded.Add(1)
+		m.intervalAdded.Add(1)
 		if m.store != nil {
 			if err := m.store.SaveReading(ctx, reading); err != nil {
 				m.logger.Error("store save failed", "err", err)
 			}
+		}
+	}
+}
+
+func (m *Monitor) runStats(ctx context.Context) {
+	ticker := time.NewTicker(m.statsInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			interval := m.intervalAdded.Swap(0)
+			total := m.totalAdded.Load()
+			args := []any{
+				"interval_readings", interval,
+				"total_readings", total,
+			}
+			if m.store != nil {
+				if n, err := m.store.CountReadings(ctx); err == nil {
+					args = append(args, "db_readings", n)
+				}
+			}
+			m.logger.Info("reading stats", args...)
 		}
 	}
 }

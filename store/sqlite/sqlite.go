@@ -93,7 +93,7 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 	for _, d := range devices {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO device_readings (received_at, device_type, serial, payload) VALUES (?, ?, ?, ?)`,
@@ -124,6 +124,12 @@ func (s *Store) LatestDevices(ctx context.Context) ([]pvs.Device, error) {
 		devices = append(devices, d)
 	}
 	return devices, rows.Err()
+}
+
+func (s *Store) CountReadings(ctx context.Context) (int64, error) {
+	var count int64
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings`).Scan(&count)
+	return count, err
 }
 
 func (s *Store) Close() error {

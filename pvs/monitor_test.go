@@ -276,6 +276,55 @@ func TestMonitorRunBackoffCapsAtMax(t *testing.T) {
 	assert.Greater(t, d.calls, 3, "expected multiple reconnect attempts")
 }
 
+// fakeStore is a minimal Store for stats tests.
+type fakeStore struct {
+	count int64
+}
+
+func (f *fakeStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
+func (f *fakeStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
+	return PowerAvg{}, nil
+}
+func (f *fakeStore) CountReadings(_ context.Context) (int64, error)               { return f.count, nil }
+func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
+func (f *fakeStore) LatestDevices(_ context.Context) ([]Device, error)            { return nil, nil }
+func (f *fakeStore) Close() error                                                 { return nil }
+
+func TestRunLoopCountsReadings(t *testing.T) {
+	ts := int64(1779680954)
+	notifications := []notification{
+		{Notification: "power", Params: notificationParams{Time: ts, SolarKW: 1.0}},
+		{Notification: "power", Params: notificationParams{Time: ts, SolarKW: 2.0}},
+		{Notification: "status"},
+		{Notification: "power", Params: notificationParams{Time: ts, SolarKW: 3.0}},
+	}
+	m := NewMonitor("", config.Default(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := &fakeReader{notifications: notifications, finalErr: errors.New("done")}
+	_ = m.runLoop(context.Background(), r)
+
+	assert.Equal(t, int64(3), m.totalAdded.Load())
+	assert.Equal(t, int64(3), m.intervalAdded.Load())
+}
+
+func TestRunStatsLogsAndResetsInterval(t *testing.T) {
+	store := &fakeStore{count: 42}
+	m := NewMonitor("", config.Default(), store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.statsInterval = 10 * time.Millisecond
+	m.totalAdded.Store(7)
+	m.intervalAdded.Store(3)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	go m.runStats(ctx)
+	<-ctx.Done()
+
+	// intervalAdded should have been reset to 0 (then incremented by zero new readings)
+	assert.Equal(t, int64(0), m.intervalAdded.Load())
+	// totalAdded is not reset
+	assert.Equal(t, int64(7), m.totalAdded.Load())
+}
+
 func TestReadingEnergy(t *testing.T) {
 	ts := time.Unix(1779680954, 0)
 	tests := []struct {

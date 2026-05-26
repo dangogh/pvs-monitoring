@@ -52,7 +52,7 @@ func TestDevicePollerFetch(t *testing.T) {
 		{
 			name: "returns devices on 200",
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				w.Write(deviceListBody(twoDevices))
+				_, _ = w.Write(deviceListBody(twoDevices))
 			},
 			wantDevices: 2,
 		},
@@ -101,7 +101,7 @@ func TestDevicePollerFetchSetsBasicAuth(t *testing.T) {
 	var gotUser, gotPass string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUser, gotPass, _ = r.BasicAuth()
-		w.Write(deviceListBody(nil))
+		_, _ = w.Write(deviceListBody(nil))
 	}))
 	defer srv.Close()
 
@@ -114,7 +114,7 @@ func TestDevicePollerFetchSetsBasicAuth(t *testing.T) {
 
 func TestDevicePollerCurrent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(deviceListBody(twoDevices))
+		_, _ = w.Write(deviceListBody(twoDevices))
 	}))
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
@@ -131,7 +131,7 @@ func TestDevicePollerCurrent(t *testing.T) {
 
 func TestDevicePollerPollCallsStore(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(deviceListBody(twoDevices))
+		_, _ = w.Write(deviceListBody(twoDevices))
 	}))
 	defer srv.Close()
 
@@ -166,7 +166,7 @@ func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		w.Write(deviceListBody(twoDevices))
+		_, _ = w.Write(deviceListBody(twoDevices))
 	}))
 	defer srv.Close()
 
@@ -185,7 +185,7 @@ func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
 
 func TestDevicePollerRunCancelledByContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(deviceListBody(twoDevices))
+		_, _ = w.Write(deviceListBody(twoDevices))
 	}))
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
@@ -296,5 +296,6 @@ func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ tim
 	f.lastDevices = devices
 	return nil
 }
+func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)    { return 0, nil }
 func (f *fakeDeviceStore) LatestDevices(_ context.Context) ([]Device, error) { return nil, nil }
-func (f *fakeDeviceStore) Close() error                                       { return nil }
+func (f *fakeDeviceStore) Close() error                                      { return nil }
