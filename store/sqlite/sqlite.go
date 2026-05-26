@@ -66,11 +66,17 @@ func (s *Store) AveragePower(ctx context.Context, since time.Time) (pvs.PowerAvg
 		 FROM readings WHERE received_at >= ?`,
 		since.Unix(),
 	)
-	var avg pvs.PowerAvg
-	if err := row.Scan(&avg.SolarKW, &avg.LoadKW, &avg.NetKW, &avg.Samples); err != nil {
+	var solarKW, loadKW, netKW sql.NullFloat64
+	var samples int
+	if err := row.Scan(&solarKW, &loadKW, &netKW, &samples); err != nil {
 		return pvs.PowerAvg{}, fmt.Errorf("query average: %w", err)
 	}
-	return avg, nil
+	return pvs.PowerAvg{
+		SolarKW: solarKW.Float64,
+		LoadKW:  loadKW.Float64,
+		NetKW:   netKW.Float64,
+		Samples: samples,
+	}, nil
 }
 
 func (s *Store) Close() error {
