@@ -22,10 +22,10 @@ func (noopTransport) Connect(_ context.Context) (mcp.Connection, error) {
 
 type noopConnection struct{}
 
-func (noopConnection) Read(_ context.Context) (jsonrpc.Message, error) { return nil, io.EOF }
+func (noopConnection) Read(_ context.Context) (jsonrpc.Message, error)  { return nil, io.EOF }
 func (noopConnection) Write(_ context.Context, _ jsonrpc.Message) error { return nil }
-func (noopConnection) Close() error                                      { return nil }
-func (noopConnection) SessionID() string                                 { return "noop" }
+func (noopConnection) Close() error                                     { return nil }
+func (noopConnection) SessionID() string                                { return "noop" }
 
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()
