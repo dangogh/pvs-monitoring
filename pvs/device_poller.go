@@ -19,13 +19,18 @@ func (e authError) Error() string {
 	return fmt.Sprintf("device list authentication failed (%s): check pvs_password in config", e.status)
 }
 
+// httpDoer executes an HTTP request.
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // DevicePoller periodically fetches the PVS6 device list via HTTP.
 type DevicePoller struct {
 	url      string
 	interval time.Duration
 	username string
 	password string
-	client   *http.Client
+	client   httpDoer
 	logger   *slog.Logger
 	store    Store
 
