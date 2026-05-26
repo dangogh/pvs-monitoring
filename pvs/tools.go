@@ -19,7 +19,8 @@ type avgArgs struct {
 }
 
 // RegisterTools adds the PVS6 MCP tools to the server.
-func RegisterTools(s *mcp.Server, m *Monitor) {
+// poller may be nil if device-list polling is not configured.
+func RegisterTools(s *mcp.Server, m *Monitor, poller *DevicePoller) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_current_power",
 		Description: "Returns the latest instantaneous power readings from the PVS6 solar monitor (kW).",
@@ -40,6 +41,15 @@ func RegisterTools(s *mcp.Server, m *Monitor) {
 			Description: "Returns average power over a time window (e.g. '7d', '24h', '1h'). Requires historical data to have been collected.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, args avgArgs) (*mcp.CallToolResult, any, error) {
 			return averagePower(ctx, m, args.Period)
+		})
+	}
+
+	if poller != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "get_device_list",
+			Description: "Returns the latest per-device readings from the PVS6, including individual inverters, power meters, and battery (if present).",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
+			return deviceList(ctx, poller)
 		})
 	}
 }
@@ -112,6 +122,25 @@ func averagePower(ctx context.Context, m *Monitor, period string) (*mcp.CallTool
 		NetKW:   avg.NetKW,
 		Samples: avg.Samples,
 	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+	}, nil, nil
+}
+
+func deviceList(_ context.Context, p *DevicePoller) (*mcp.CallToolResult, any, error) {
+	devices := p.Current()
+	if len(devices) == 0 {
+		return nil, nil, fmt.Errorf("no device list available yet")
+	}
+	// Return the raw payloads as a JSON array so all device-specific fields are visible.
+	raws := make([]json.RawMessage, len(devices))
+	for i, d := range devices {
+		raws[i] = d.Raw
+	}
+	data, err := json.Marshal(raws)
 	if err != nil {
 		return nil, nil, err
 	}
