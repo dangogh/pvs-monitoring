@@ -122,6 +122,79 @@ func TestSaveAndAveragePower(t *testing.T) {
 	}
 }
 
+func TestSaveAndLatestDevices(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	inv := pvs.Device{
+		Serial:     "INV001",
+		DeviceType: "Inverter",
+		Type:       "MI",
+		Model:      "SPR-X22",
+		State:      "working",
+		StateDescr: "Working",
+		Raw:        []byte(`{"SERIAL":"INV001","DEVICE_TYPE":"Inverter","p_3phsum_kw":8.5}`),
+	}
+	mtr := pvs.Device{
+		Serial:     "MTR001",
+		DeviceType: "Power Meter",
+		Raw:        []byte(`{"SERIAL":"MTR001","DEVICE_TYPE":"Power Meter"}`),
+	}
+
+	t.Run("returns empty slice when no devices saved", func(t *testing.T) {
+		s := openTestStore(t)
+		devices, err := s.LatestDevices(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, devices)
+	})
+
+	t.Run("returns devices from most recent poll", func(t *testing.T) {
+		s := openTestStore(t)
+
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv, mtr}, now))
+
+		got, err := s.LatestDevices(ctx)
+		require.NoError(t, err)
+		require.Len(t, got, 2)
+
+		serials := []string{got[0].Serial, got[1].Serial}
+		assert.ElementsMatch(t, []string{"INV001", "MTR001"}, serials)
+	})
+
+	t.Run("latest poll supersedes earlier poll", func(t *testing.T) {
+		s := openTestStore(t)
+
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now))
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{mtr}, now.Add(time.Minute)))
+
+		got, err := s.LatestDevices(ctx)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MTR001", got[0].Serial)
+	})
+
+	t.Run("raw payload round-trips correctly", func(t *testing.T) {
+		s := openTestStore(t)
+
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now))
+
+		got, err := s.LatestDevices(ctx)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.JSONEq(t, string(inv.Raw), string(got[0].Raw))
+	})
+
+	t.Run("saves all devices in a transaction", func(t *testing.T) {
+		s := openTestStore(t)
+
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv, mtr}, now))
+
+		var count int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_readings`).Scan(&count))
+		assert.Equal(t, 2, count)
+	})
+}
+
 func TestSaveReadingPersistsAllFields(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)
