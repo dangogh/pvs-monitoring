@@ -81,8 +81,19 @@ func run() error {
 		}
 	}()
 
+	var poller *pvs.DevicePoller
+	if cfg.DeviceList.Password != "" {
+		poller = pvs.NewDevicePoller(cfg.DeviceList, store, logger)
+		go func() {
+			if err := poller.Run(monCtx); err != nil && monCtx.Err() == nil {
+				logger.Error("device poller stopped", "err", err)
+			}
+		}()
+		logger.Info("device list poller starting", "url", cfg.DeviceList.URL, "interval", cfg.DeviceList.Interval.Duration())
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{Name: "pvs-monitor", Version: "0.1.0"}, nil)
-	pvs.RegisterTools(server, monitor)
+	pvs.RegisterTools(server, monitor, poller)
 
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
 	return server.Run(ctx, &mcp.StdioTransport{})
