@@ -8,8 +8,10 @@ An MCP server that exposes real-time solar power data from a SunPower PVS6 monit
 |------|-------------|
 | `get_current_power` | Instantaneous solar production, home load, and grid draw (kW) |
 | `get_energy_summary` | Cumulative energy totals for solar, load, and grid (kWh) |
+| `get_average_power` | Average power over a time window (e.g. `7d`, `24h`) — requires historical data |
+| `get_device_list` | Per-device readings from all inverters, meters, and battery — requires device list config |
 
-Both tools return an error if no reading has arrived yet or if the most recent reading is stale (default: older than 5 seconds).
+`get_current_power` and `get_energy_summary` return an error if no reading has arrived yet or if the most recent reading is stale (default: older than 5 seconds).
 
 ## Prerequisites
 
@@ -25,16 +27,26 @@ make build
 
 ## Configuration
 
-Configuration is read from `~/.config/pvs-monitor/config.yaml` (or `$XDG_CONFIG_HOME/pvs-monitor/config.yaml`).
+Copy the example config and edit it for your system:
 
-```yaml
-addr: ws://192.168.191.155:9002        # PVS6 WebSocket address
-reconnect_initial_interval: 1s         # initial backoff on disconnect
-reconnect_max_interval: 30s            # maximum backoff
-stale_threshold: 5s                    # error if reading is older than this
+```sh
+mkdir -p ~/.config/pvs-monitor
+cp config.example.yaml ~/.config/pvs-monitor/config.yaml
+$EDITOR ~/.config/pvs-monitor/config.yaml
 ```
 
-All fields are optional; the values above are the defaults.
+The config file is read from `~/.config/pvs-monitor/config.yaml` (or `$XDG_CONFIG_HOME/pvs-monitor/config.yaml`). All fields are optional — see `config.example.yaml` for available settings and their defaults.
+
+### Device list polling (per-inverter data)
+
+To enable per-device readings, set your PVS serial password in the config:
+
+```yaml
+device_list:
+  password: "XXXXX"   # last 5 characters of your PVS serial number
+```
+
+The serial number is printed on a sticker on the PVS6 unit. Leave `password` empty to disable this feature.
 
 ### Precedence
 
@@ -43,8 +55,9 @@ All fields are optional; the values above are the defaults.
 ### Flags
 
 ```
---config   path to config file (default: ~/.config/pvs-monitor/config.yaml)
---addr     PVS6 WebSocket address
+--config       path to config file (default: ~/.config/pvs-monitor/config.yaml)
+--addr         PVS6 WebSocket address
+--db           path to SQLite database (default: ~/.local/share/pvs-monitor/readings.db, empty to disable)
 -v, --verbose  enable debug logging
 ```
 

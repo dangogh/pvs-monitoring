@@ -1,0 +1,20 @@
+# pvs-monitor example configuration
+# Copy to ~/.config/pvs-monitor/config.yaml and adjust for your system.
+
+# PVS6 WebSocket address (ws://your-pvs6-ip:9002)
+addr: ws://192.168.1.100:9002
+
+# Reconnect backoff settings
+reconnect_initial_interval: 1s
+reconnect_max_interval: 30s
+
+# Error if no reading has arrived within this window
+stale_threshold: 5s
+
+# Device list HTTP poller (optional — provides per-device data)
+# Leave password empty to disable.
+device_list:
+  url: http://sunpowerconsole.com   # or http://your-pvs6-ip
+  interval: 60s
+  username: ssm_owner
+  password: ""                      # last 5 characters of your PVS serial number
