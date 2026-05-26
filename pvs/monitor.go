@@ -107,6 +107,23 @@ func (w *wsReader) read(ctx context.Context, n *notification) error {
 	return wsjson.Read(ctx, w.conn, n)
 }
 
+// dialer opens a notificationReader for the given address.
+// The returned cleanup func must be called when done with the reader.
+type dialer interface {
+	dial(ctx context.Context, addr string) (notificationReader, func(), error)
+}
+
+// wsDialer is the production dialer using the coder/websocket library.
+type wsDialer struct{}
+
+func (wsDialer) dial(ctx context.Context, addr string) (notificationReader, func(), error) {
+	conn, _, err := websocket.Dial(ctx, addr, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial %s: %w", addr, err)
+	}
+	return &wsReader{conn: conn}, func() { conn.CloseNow() }, nil
+}
+
 // Monitor connects to a PVS6 WebSocket and keeps the latest Reading.
 type Monitor struct {
 	addr             string
@@ -115,6 +132,7 @@ type Monitor struct {
 	staleThreshold   time.Duration
 	logger           *slog.Logger
 	store            Store
+	dialer           dialer
 
 	mu      sync.RWMutex
 	current *Reading
@@ -130,6 +148,7 @@ func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger
 		staleThreshold:   cfg.StaleThreshold.Duration(),
 		logger:           logger,
 		store:            store,
+		dialer:           wsDialer{},
 	}
 }
 
@@ -157,12 +176,12 @@ func (m *Monitor) Run(ctx context.Context) error {
 }
 
 func (m *Monitor) connect(ctx context.Context) error {
-	conn, _, err := websocket.Dial(ctx, m.addr, nil)
+	r, cleanup, err := m.dialer.dial(ctx, m.addr)
 	if err != nil {
-		return fmt.Errorf("dial %s: %w", m.addr, err)
+		return err
 	}
-	defer conn.CloseNow()
-	return m.runLoop(ctx, &wsReader{conn: conn})
+	defer cleanup()
+	return m.runLoop(ctx, r)
 }
 
 func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
