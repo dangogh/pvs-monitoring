@@ -6,15 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { s.Close() })
 	return s
 }
@@ -36,9 +37,7 @@ func TestOpen(t *testing.T) {
 			path: func(t *testing.T) string {
 				p := filepath.Join(t.TempDir(), "readings.db")
 				s, err := Open(p)
-				if err != nil {
-					t.Fatalf("first Open: %v", err)
-				}
+				require.NoError(t, err)
 				s.Close()
 				return p
 			},
@@ -48,12 +47,12 @@ func TestOpen(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, err := Open(tt.path(t))
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Open() err = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
 			}
-			if s != nil {
-				s.Close()
-			}
+			require.NoError(t, err)
+			s.Close()
 		})
 	}
 }
@@ -107,31 +106,18 @@ func TestSaveAndAveragePower(t *testing.T) {
 			s := openTestStore(t)
 
 			for _, r := range tt.readings {
-				if err := s.SaveReading(ctx, r); err != nil {
-					t.Fatalf("SaveReading: %v", err)
-				}
+				require.NoError(t, s.SaveReading(ctx, r))
 			}
 
 			got, err := s.AveragePower(ctx, tt.since)
-			if err != nil {
-				t.Fatalf("AveragePower: %v", err)
-			}
-			if got.Samples != tt.want.Samples {
-				t.Errorf("Samples: got %d, want %d", got.Samples, tt.want.Samples)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want.Samples, got.Samples)
 			if got.Samples == 0 {
 				return
 			}
-			const epsilon = 1e-9
-			if diff := got.SolarKW - tt.want.SolarKW; diff > epsilon || diff < -epsilon {
-				t.Errorf("SolarKW: got %v, want %v", got.SolarKW, tt.want.SolarKW)
-			}
-			if diff := got.LoadKW - tt.want.LoadKW; diff > epsilon || diff < -epsilon {
-				t.Errorf("LoadKW: got %v, want %v", got.LoadKW, tt.want.LoadKW)
-			}
-			if diff := got.NetKW - tt.want.NetKW; diff > epsilon || diff < -epsilon {
-				t.Errorf("NetKW: got %v, want %v", got.NetKW, tt.want.NetKW)
-			}
+			assert.InDelta(t, tt.want.SolarKW, got.SolarKW, 1e-9)
+			assert.InDelta(t, tt.want.LoadKW, got.LoadKW, 1e-9)
+			assert.InDelta(t, tt.want.NetKW, got.NetKW, 1e-9)
 		})
 	}
 }
@@ -151,39 +137,20 @@ func TestSaveReadingPersistsAllFields(t *testing.T) {
 		LoadKWh:    65063.92,
 		NetKWh:     -29412.85,
 	}
-	if err := s.SaveReading(ctx, r); err != nil {
-		t.Fatalf("SaveReading: %v", err)
-	}
+	require.NoError(t, s.SaveReading(ctx, r))
 
 	row := s.db.QueryRowContext(ctx,
 		`SELECT received_at, reading_time, solar_kw, load_kw, net_kw, solar_kwh, load_kwh, net_kwh FROM readings`)
 	var recvAt, readingTime int64
 	var solarKW, loadKW, netKW, solarKWh, loadKWh, netKWh float64
-	if err := row.Scan(&recvAt, &readingTime, &solarKW, &loadKW, &netKW, &solarKWh, &loadKWh, &netKWh); err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-	if recvAt != r.ReceivedAt.Unix() {
-		t.Errorf("received_at: got %d, want %d", recvAt, r.ReceivedAt.Unix())
-	}
-	if readingTime != r.Time.Unix() {
-		t.Errorf("reading_time: got %d, want %d", readingTime, r.Time.Unix())
-	}
-	if solarKW != r.SolarKW {
-		t.Errorf("solar_kw: got %v, want %v", solarKW, r.SolarKW)
-	}
-	if loadKW != r.LoadKW {
-		t.Errorf("load_kw: got %v, want %v", loadKW, r.LoadKW)
-	}
-	if netKW != r.NetKW {
-		t.Errorf("net_kw: got %v, want %v", netKW, r.NetKW)
-	}
-	if solarKWh != r.SolarKWh {
-		t.Errorf("solar_kwh: got %v, want %v", solarKWh, r.SolarKWh)
-	}
-	if loadKWh != r.LoadKWh {
-		t.Errorf("load_kwh: got %v, want %v", loadKWh, r.LoadKWh)
-	}
-	if netKWh != r.NetKWh {
-		t.Errorf("net_kwh: got %v, want %v", netKWh, r.NetKWh)
-	}
+	require.NoError(t, row.Scan(&recvAt, &readingTime, &solarKW, &loadKW, &netKW, &solarKWh, &loadKWh, &netKWh))
+
+	assert.Equal(t, r.ReceivedAt.Unix(), recvAt)
+	assert.Equal(t, r.Time.Unix(), readingTime)
+	assert.Equal(t, r.SolarKW, solarKW)
+	assert.Equal(t, r.LoadKW, loadKW)
+	assert.Equal(t, r.NetKW, netKW)
+	assert.Equal(t, r.SolarKWh, solarKWh)
+	assert.Equal(t, r.LoadKWh, loadKWh)
+	assert.Equal(t, r.NetKWh, netKWh)
 }

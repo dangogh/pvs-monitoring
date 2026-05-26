@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/dangogh/pvs-monitoring/config"
 )
 
@@ -48,27 +51,13 @@ func TestNotificationParamsToReading(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.params.toReading()
-			if !got.Time.Equal(tt.want.Time) {
-				t.Errorf("Time: got %v, want %v", got.Time, tt.want.Time)
-			}
-			if got.SolarKW != tt.want.SolarKW {
-				t.Errorf("SolarKW: got %v, want %v", got.SolarKW, tt.want.SolarKW)
-			}
-			if got.LoadKW != tt.want.LoadKW {
-				t.Errorf("LoadKW: got %v, want %v", got.LoadKW, tt.want.LoadKW)
-			}
-			if got.NetKW != tt.want.NetKW {
-				t.Errorf("NetKW: got %v, want %v", got.NetKW, tt.want.NetKW)
-			}
-			if got.SolarKWh != tt.want.SolarKWh {
-				t.Errorf("SolarKWh: got %v, want %v", got.SolarKWh, tt.want.SolarKWh)
-			}
-			if got.NetKWh != tt.want.NetKWh {
-				t.Errorf("NetKWh: got %v, want %v", got.NetKWh, tt.want.NetKWh)
-			}
-			if got.LoadKWh != tt.want.LoadKWh {
-				t.Errorf("LoadKWh: got %v, want %v", got.LoadKWh, tt.want.LoadKWh)
-			}
+			assert.True(t, got.Time.Equal(tt.want.Time), "Time")
+			assert.Equal(t, tt.want.SolarKW, got.SolarKW, "SolarKW")
+			assert.Equal(t, tt.want.LoadKW, got.LoadKW, "LoadKW")
+			assert.Equal(t, tt.want.NetKW, got.NetKW, "NetKW")
+			assert.Equal(t, tt.want.SolarKWh, got.SolarKWh, "SolarKWh")
+			assert.Equal(t, tt.want.NetKWh, got.NetKWh, "NetKWh")
+			assert.Equal(t, tt.want.LoadKWh, got.LoadKWh, "LoadKWh")
 		})
 	}
 }
@@ -77,18 +66,9 @@ func TestMonitorCurrent(t *testing.T) {
 	tests := []struct {
 		name    string
 		reading *Reading
-		wantNil bool
 	}{
-		{
-			name:    "no reading yet",
-			reading: nil,
-			wantNil: true,
-		},
-		{
-			name:    "reading available",
-			reading: &Reading{SolarKW: 5.0, LoadKW: 3.0, NetKW: -2.0},
-			wantNil: false,
-		},
+		{name: "no reading yet", reading: nil},
+		{name: "reading available", reading: &Reading{SolarKW: 5.0, LoadKW: 3.0, NetKW: -2.0}},
 	}
 
 	for _, tt := range tests {
@@ -97,13 +77,7 @@ func TestMonitorCurrent(t *testing.T) {
 			if tt.reading != nil {
 				m.current = tt.reading
 			}
-			got := m.Current()
-			if tt.wantNil && got != nil {
-				t.Errorf("expected nil, got %+v", got)
-			}
-			if !tt.wantNil && got != tt.reading {
-				t.Errorf("expected %+v, got %+v", tt.reading, got)
-			}
+			assert.Equal(t, tt.reading, m.Current())
 		})
 	}
 }
@@ -129,10 +103,7 @@ func TestReadingPower(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.r.Power()
-			if got != tt.want {
-				t.Errorf("got %+v, want %+v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.r.Power())
 		})
 	}
 }
@@ -204,25 +175,16 @@ func TestRunLoop(t *testing.T) {
 			m := NewMonitor("", config.Default(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			r := &fakeReader{notifications: tt.notifications, finalErr: tt.wantErr}
 			err := m.runLoop(context.Background(), r)
-			if !errors.Is(err, tt.wantErr) {
-				t.Errorf("err: got %v, want %v", err, tt.wantErr)
-			}
+			assert.ErrorIs(t, err, tt.wantErr)
+
 			got := m.Current()
 			if tt.wantReading == nil {
-				if got != nil {
-					t.Errorf("expected nil current, got %+v", got)
-				}
+				assert.Nil(t, got)
 				return
 			}
-			if got == nil {
-				t.Fatal("expected non-nil current, got nil")
-			}
-			if !got.Time.Equal(tt.wantReading.Time) {
-				t.Errorf("Time: got %v, want %v", got.Time, tt.wantReading.Time)
-			}
-			if got.SolarKW != tt.wantReading.SolarKW {
-				t.Errorf("SolarKW: got %v, want %v", got.SolarKW, tt.wantReading.SolarKW)
-			}
+			require.NotNil(t, got)
+			assert.True(t, got.Time.Equal(tt.wantReading.Time), "Time")
+			assert.Equal(t, tt.wantReading.SolarKW, got.SolarKW, "SolarKW")
 		})
 	}
 }
@@ -243,10 +205,7 @@ func TestReadingEnergy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.r.Energy()
-			if got != tt.want {
-				t.Errorf("got %+v, want %+v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, tt.r.Energy())
 		})
 	}
 }

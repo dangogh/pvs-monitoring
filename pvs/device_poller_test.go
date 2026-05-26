@@ -3,15 +3,16 @@ package pvs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dangogh/pvs-monitoring/config"
 )
@@ -83,20 +84,12 @@ func TestDevicePollerFetch(t *testing.T) {
 
 			devices, err := p.fetch(context.Background())
 			if tt.wantErr != "" {
-				if err == nil {
-					t.Fatalf("expected error containing %q, got nil", tt.wantErr)
-				}
-				if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
-				}
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErr)
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if len(devices) != tt.wantDevices {
-				t.Errorf("got %d devices, want %d", len(devices), tt.wantDevices)
-			}
+			require.NoError(t, err)
+			assert.Len(t, devices, tt.wantDevices)
 		})
 	}
 }
@@ -110,12 +103,10 @@ func TestDevicePollerFetchSetsBasicAuth(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestPoller(t, srv, nil)
-	if _, err := p.fetch(context.Background()); err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	if gotUser != "user" || gotPass != "pass" {
-		t.Errorf("basic auth: got %q/%q, want user/pass", gotUser, gotPass)
-	}
+	_, err := p.fetch(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "user", gotUser)
+	assert.Equal(t, "pass", gotPass)
 }
 
 func TestDevicePollerCurrent(t *testing.T) {
@@ -125,24 +116,14 @@ func TestDevicePollerCurrent(t *testing.T) {
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
 
-	if got := p.Current(); got != nil {
-		t.Errorf("expected nil before first poll, got %v", got)
-	}
+	assert.Nil(t, p.Current())
 
-	if err := p.poll(context.Background()); err != nil {
-		t.Fatalf("poll: %v", err)
-	}
+	require.NoError(t, p.poll(context.Background()))
 
 	got := p.Current()
-	if len(got) != 2 {
-		t.Fatalf("got %d devices, want 2", len(got))
-	}
-	if got[0].Serial != "INV001" {
-		t.Errorf("device[0].Serial = %q, want INV001", got[0].Serial)
-	}
-	if got[1].DeviceType != "Power Meter" {
-		t.Errorf("device[1].DeviceType = %q, want Power Meter", got[1].DeviceType)
-	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "INV001", got[0].Serial)
+	assert.Equal(t, "Power Meter", got[1].DeviceType)
 }
 
 func TestDevicePollerPollCallsStore(t *testing.T) {
@@ -154,18 +135,12 @@ func TestDevicePollerPollCallsStore(t *testing.T) {
 	store := &fakeDeviceStore{}
 	p := newTestPoller(t, srv, store)
 
-	if err := p.poll(context.Background()); err != nil {
-		t.Fatalf("poll: %v", err)
-	}
+	require.NoError(t, p.poll(context.Background()))
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if store.saveCount != 1 {
-		t.Errorf("SaveDevices called %d times, want 1", store.saveCount)
-	}
-	if len(store.lastDevices) != 2 {
-		t.Errorf("saved %d devices, want 2", len(store.lastDevices))
-	}
+	assert.Equal(t, 1, store.saveCount)
+	assert.Len(t, store.lastDevices, 2)
 }
 
 func TestDevicePollerRunStopsOnAuthError(t *testing.T) {
@@ -177,10 +152,7 @@ func TestDevicePollerRunStopsOnAuthError(t *testing.T) {
 	p.interval = 10 * time.Millisecond
 
 	err := p.Run(context.Background())
-	var ae authError
-	if !errors.As(err, &ae) {
-		t.Errorf("expected authError, got %v", err)
-	}
+	assert.ErrorAs(t, err, &authError{})
 }
 
 func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
@@ -201,14 +173,11 @@ func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	// Run until we get a successful poll (current becomes non-nil).
 	for p.Current() == nil && ctx.Err() == nil {
 		_ = p.poll(ctx)
 	}
 
-	if p.Current() == nil {
-		t.Error("expected devices after recovery, got nil")
-	}
+	assert.NotNil(t, p.Current())
 }
 
 func TestDevicePollerRunCancelledByContext(t *testing.T) {
@@ -223,9 +192,7 @@ func TestDevicePollerRunCancelledByContext(t *testing.T) {
 	cancel()
 
 	err := p.Run(ctx)
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("expected context.Canceled, got %v", err)
-	}
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 // fakeDeviceStore records SaveDevices calls.
@@ -235,7 +202,7 @@ type fakeDeviceStore struct {
 	lastDevices []Device
 }
 
-func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error  { return nil }
+func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
 func (f *fakeDeviceStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
 	return PowerAvg{}, nil
 }
@@ -247,4 +214,4 @@ func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ tim
 	return nil
 }
 func (f *fakeDeviceStore) LatestDevices(_ context.Context) ([]Device, error) { return nil, nil }
-func (f *fakeDeviceStore) Close() error { return nil }
+func (f *fakeDeviceStore) Close() error                                       { return nil }
