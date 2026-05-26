@@ -3,6 +3,7 @@ package pvs
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -200,7 +201,7 @@ func TestRunLoop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := NewMonitor("", config.Default(), nil, slog.New(slog.NewTextHandler(nil, nil)))
+			m := NewMonitor("", config.Default(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 			r := &fakeReader{notifications: tt.notifications, finalErr: tt.wantErr}
 			err := m.runLoop(context.Background(), r)
 			if !errors.Is(err, tt.wantErr) {
