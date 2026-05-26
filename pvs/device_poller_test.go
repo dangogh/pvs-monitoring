@@ -1,8 +1,11 @@
 package pvs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -193,6 +196,86 @@ func TestDevicePollerRunCancelledByContext(t *testing.T) {
 
 	err := p.Run(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// fakeDoer implements httpDoer with a configurable response.
+type fakeDoer struct {
+	statusCode int
+	body       []byte
+	err        error
+}
+
+func (f *fakeDoer) Do(_ *http.Request) (*http.Response, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &http.Response{
+		StatusCode: f.statusCode,
+		Status:     fmt.Sprintf("%d %s", f.statusCode, http.StatusText(f.statusCode)),
+		Body:       io.NopCloser(bytes.NewReader(f.body)),
+	}, nil
+}
+
+func newPollerWithDoer(t *testing.T, doer httpDoer) *DevicePoller {
+	t.Helper()
+	p := &DevicePoller{
+		url:      "http://fake/cgi-bin/dl_cgi/devices/list",
+		interval: time.Hour,
+		username: "user",
+		password: "pass",
+		client:   doer,
+		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	return p
+}
+
+func TestDevicePollerFetchWithFakeDoer(t *testing.T) {
+	tests := []struct {
+		name        string
+		doer        *fakeDoer
+		wantDevices int
+		wantErr     string
+	}{
+		{
+			name:        "200 returns devices",
+			doer:        &fakeDoer{statusCode: http.StatusOK, body: deviceListBody(twoDevices)},
+			wantDevices: 2,
+		},
+		{
+			name:    "401 returns authError",
+			doer:    &fakeDoer{statusCode: http.StatusUnauthorized},
+			wantErr: "authentication failed",
+		},
+		{
+			name:    "403 returns authError",
+			doer:    &fakeDoer{statusCode: http.StatusForbidden},
+			wantErr: "authentication failed",
+		},
+		{
+			name:    "500 returns generic error",
+			doer:    &fakeDoer{statusCode: http.StatusInternalServerError},
+			wantErr: "Internal Server Error",
+		},
+		{
+			name:    "network error propagates",
+			doer:    &fakeDoer{err: errors.New("connection refused")},
+			wantErr: "connection refused",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newPollerWithDoer(t, tt.doer)
+			devices, err := p.fetch(context.Background())
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, devices, tt.wantDevices)
+		})
+	}
 }
 
 // fakeDeviceStore records SaveDevices calls.
