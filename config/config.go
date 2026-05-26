@@ -26,12 +26,23 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 const defaultAddr = "ws://192.168.191.155:9002"
 
+// DeviceListConfig holds configuration for the HTTP device-list poller.
+type DeviceListConfig struct {
+	URL      string   `yaml:"url"`
+	Interval Duration `yaml:"interval"`
+	Username string   `yaml:"username"`
+	// Password is the last 5 characters of the PVS serial number.
+	// An empty value disables the device-list poller.
+	Password string `yaml:"password"`
+}
+
 // Config holds all runtime configuration for pvs-monitor.
 type Config struct {
-	Addr                     string   `yaml:"addr"`
-	ReconnectInitialInterval Duration `yaml:"reconnect_initial_interval"`
-	ReconnectMaxInterval     Duration `yaml:"reconnect_max_interval"`
-	StaleThreshold           Duration `yaml:"stale_threshold"`
+	Addr                     string           `yaml:"addr"`
+	ReconnectInitialInterval Duration         `yaml:"reconnect_initial_interval"`
+	ReconnectMaxInterval     Duration         `yaml:"reconnect_max_interval"`
+	StaleThreshold           Duration         `yaml:"stale_threshold"`
+	DeviceList               DeviceListConfig `yaml:"device_list"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -41,6 +52,11 @@ func Default() Config {
 		ReconnectInitialInterval: Duration(time.Second),
 		ReconnectMaxInterval:     Duration(30 * time.Second),
 		StaleThreshold:           Duration(5 * time.Second),
+		DeviceList: DeviceListConfig{
+			URL:      "http://sunpowerconsole.com",
+			Interval: Duration(60 * time.Second),
+			Username: "ssm_owner",
+		},
 	}
 }
 
