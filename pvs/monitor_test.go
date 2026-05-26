@@ -3,6 +3,7 @@ package pvs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -187,6 +188,92 @@ func TestRunLoop(t *testing.T) {
 			assert.Equal(t, tt.wantReading.SolarKW, got.SolarKW, "SolarKW")
 		})
 	}
+}
+
+// fakeDialer returns a sequence of readers, one per dial call.
+type fakeDialer struct {
+	readers []notificationReader
+	idx     int
+	calls   int
+	dialErr error
+}
+
+func (f *fakeDialer) dial(_ context.Context, _ string) (notificationReader, func(), error) {
+	f.calls++
+	if f.dialErr != nil {
+		return nil, nil, f.dialErr
+	}
+	if f.idx >= len(f.readers) {
+		return nil, nil, fmt.Errorf("no more readers")
+	}
+	r := f.readers[f.idx]
+	f.idx++
+	return r, func() {}, nil
+}
+
+func newTestMonitor(d dialer) *Monitor {
+	cfg := config.Default()
+	cfg.ReconnectInitialInterval = config.Duration(time.Millisecond)
+	cfg.ReconnectMaxInterval = config.Duration(4 * time.Millisecond)
+	m := NewMonitor("ws://test", cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.dialer = d
+	return m
+}
+
+func TestMonitorRunReconnectsAfterError(t *testing.T) {
+	ts := int64(1779680954)
+
+	// First connection errors immediately; second delivers a reading then stops.
+	d := &fakeDialer{readers: []notificationReader{
+		&fakeReader{finalErr: errors.New("connection reset")},
+		&fakeReader{
+			notifications: []notification{{
+				Notification: "power",
+				Params:       notificationParams{Time: ts, SolarKW: 5.0},
+			}},
+			finalErr: errors.New("done"),
+		},
+	}}
+	m := newTestMonitor(d)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go m.Run(ctx) //nolint:errcheck
+
+	require.Eventually(t, func() bool { return m.Current() != nil }, time.Second, time.Millisecond)
+	assert.Equal(t, 5.0, m.Current().SolarKW)
+}
+
+func TestMonitorRunExitsOnContextCancel(t *testing.T) {
+	d := &fakeDialer{dialErr: errors.New("refused")}
+	m := newTestMonitor(d)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := m.Run(ctx)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestMonitorRunBackoffCapsAtMax(t *testing.T) {
+	d := &fakeDialer{dialErr: errors.New("refused")}
+	m := newTestMonitor(d)
+	m.reconnectInitial = time.Millisecond
+	m.reconnectMax = 2 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := m.Run(ctx)
+	assert.ErrorIs(t, err, context.Canceled)
+	// With a 2ms max backoff and 20ms budget we should reconnect many times.
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+	assert.Greater(t, d.calls, 3, "expected multiple reconnect attempts")
 }
 
 func TestReadingEnergy(t *testing.T) {
