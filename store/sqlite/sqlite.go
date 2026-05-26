@@ -15,17 +15,26 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS readings (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
-	received_at INTEGER NOT NULL,
+	id           INTEGER PRIMARY KEY AUTOINCREMENT,
+	received_at  INTEGER NOT NULL,
 	reading_time INTEGER NOT NULL,
-	solar_kw    REAL NOT NULL,
-	load_kw     REAL NOT NULL,
-	net_kw      REAL NOT NULL,
-	solar_kwh   REAL NOT NULL,
-	load_kwh    REAL NOT NULL,
-	net_kwh     REAL NOT NULL
+	solar_kw     REAL NOT NULL,
+	load_kw      REAL NOT NULL,
+	net_kw       REAL NOT NULL,
+	solar_kwh    REAL NOT NULL,
+	load_kwh     REAL NOT NULL,
+	net_kwh      REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_received_at ON readings(received_at);
+
+CREATE TABLE IF NOT EXISTS device_readings (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	received_at INTEGER NOT NULL,
+	device_type TEXT NOT NULL,
+	serial      TEXT NOT NULL,
+	payload     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_device_received_at ON device_readings(received_at);
 `
 
 // Store persists readings in a SQLite database.
@@ -77,6 +86,44 @@ func (s *Store) AveragePower(ctx context.Context, since time.Time) (pvs.PowerAvg
 		NetKW:   netKW.Float64,
 		Samples: samples,
 	}, nil
+}
+
+func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, d := range devices {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO device_readings (received_at, device_type, serial, payload) VALUES (?, ?, ?, ?)`,
+			receivedAt.Unix(), d.DeviceType, d.Serial, string(d.Raw),
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) LatestDevices(ctx context.Context) ([]pvs.Device, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT device_type, serial, payload FROM device_readings
+		 WHERE received_at = (SELECT MAX(received_at) FROM device_readings)`)
+	if err != nil {
+		return nil, fmt.Errorf("query latest devices: %w", err)
+	}
+	defer rows.Close()
+	var devices []pvs.Device
+	for rows.Next() {
+		var d pvs.Device
+		var payload string
+		if err := rows.Scan(&d.DeviceType, &d.Serial, &payload); err != nil {
+			return nil, fmt.Errorf("scan device: %w", err)
+		}
+		d.Raw = []byte(payload)
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
 }
 
 func (s *Store) Close() error {
