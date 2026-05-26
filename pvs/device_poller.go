@@ -82,6 +82,9 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 	p.current = devices
 	p.mu.Unlock()
 	p.logger.Debug("device list updated", "count", len(devices))
+	for _, d := range devices {
+		p.logger.Debug("device", "type", d.DeviceType, "serial", d.Serial, "model", d.Model, "state", d.State, "descr", d.StateDescr)
+	}
 	if p.store != nil {
 		if err := p.store.SaveDevices(ctx, devices, now); err != nil {
 			p.logger.Error("store save devices failed", "err", err)

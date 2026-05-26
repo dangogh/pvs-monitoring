@@ -180,7 +180,15 @@ func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 		m.mu.Lock()
 		m.current = reading
 		m.mu.Unlock()
-		m.logger.Debug("reading updated", "solar_kw", reading.SolarKW, "load_kw", reading.LoadKW, "net_kw", reading.NetKW)
+		m.logger.Debug("reading updated",
+			"solar_kw", reading.SolarKW,
+			"load_kw", reading.LoadKW,
+			"net_kw", reading.NetKW,
+			"solar_kwh", reading.SolarKWh,
+			"load_kwh", reading.LoadKWh,
+			"net_kwh", reading.NetKWh,
+			"reading_time", reading.Time.Format(time.RFC3339),
+		)
 		if m.store != nil {
 			if err := m.store.SaveReading(ctx, reading); err != nil {
 				m.logger.Error("store save failed", "err", err)
