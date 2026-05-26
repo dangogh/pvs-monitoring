@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -24,21 +25,24 @@ func defaultDBPath() string {
 }
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:], os.Stderr, &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "pvs-monitor: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+func run(args []string, logOut io.Writer, transport mcp.Transport) error {
+	fs := flag.NewFlagSet("pvs-monitor", flag.ContinueOnError)
 	var cfgPath, addr, dbPath string
 	var verbose bool
-	flag.StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
-	flag.StringVar(&addr, "addr", "", "PVS6 WebSocket address (overrides config and PVS_ADDR)")
-	flag.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database (empty to disable)")
-	flag.BoolVar(&verbose, "verbose", false, "enable debug logging")
-	flag.BoolVar(&verbose, "v", false, "enable debug logging (shorthand)")
-	flag.Parse()
+	fs.StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
+	fs.StringVar(&addr, "addr", "", "PVS6 WebSocket address (overrides config and PVS_ADDR)")
+	fs.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database (empty to disable)")
+	fs.BoolVar(&verbose, "verbose", false, "enable debug logging")
+	fs.BoolVar(&verbose, "v", false, "enable debug logging (shorthand)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -56,7 +60,7 @@ func run() error {
 	if verbose {
 		level = slog.LevelDebug
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: level}))
 
 	var store pvs.Store
 	if dbPath != "" {
@@ -96,5 +100,5 @@ func run() error {
 	pvs.RegisterTools(server, monitor, poller)
 
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
-	return server.Run(ctx, &mcp.StdioTransport{})
+	return server.Run(ctx, transport)
 }
