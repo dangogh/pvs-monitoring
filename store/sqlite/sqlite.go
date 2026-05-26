@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -31,8 +33,11 @@ type Store struct {
 	db *sql.DB
 }
 
-// Open opens (or creates) the SQLite database at path.
+// Open opens (or creates) the SQLite database at path, creating parent directories as needed.
 func Open(path string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create db dir: %w", err)
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
