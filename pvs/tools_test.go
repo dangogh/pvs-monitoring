@@ -1,12 +1,34 @@
 package pvs
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// toolsStore is a fake Store for tools tests.
+type toolsStore struct {
+	reading    *Reading
+	readingErr error
+	devices    []Device
+	avg        PowerAvg
+	avgErr     error
+}
+
+func (f *toolsStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
+func (f *toolsStore) LatestReading(_ context.Context) (*Reading, error) {
+	return f.reading, f.readingErr
+}
+func (f *toolsStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
+	return f.avg, f.avgErr
+}
+func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
+func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
+func (f *toolsStore) LatestDevices(_ context.Context) ([]Device, error)            { return f.devices, nil }
+func (f *toolsStore) Close() error                                                 { return nil }
 
 func freshReading(r *Reading) *Reading {
 	r.ReceivedAt = time.Now()
@@ -22,25 +44,25 @@ func TestCurrentPower(t *testing.T) {
 	ts := time.Unix(1779680954, 0)
 	tests := []struct {
 		name           string
-		current        *Reading
+		reading        *Reading
 		staleThreshold time.Duration
 		wantErr        bool
 		want           PowerJSON
 	}{
 		{
 			name:    "no reading",
-			current: nil,
+			reading: nil,
 			wantErr: true,
 		},
 		{
 			name:           "stale reading",
-			current:        staleReading(&Reading{Time: ts}),
+			reading:        staleReading(&Reading{Time: ts}),
 			staleThreshold: 5 * time.Second,
 			wantErr:        true,
 		},
 		{
 			name:           "fresh reading",
-			current:        freshReading(&Reading{Time: ts, SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92}),
+			reading:        freshReading(&Reading{Time: ts, SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92}),
 			staleThreshold: 5 * time.Second,
 			want:           PowerJSON{Time: ts.Format(time.RFC3339), SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92},
 		},
@@ -48,8 +70,8 @@ func TestCurrentPower(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := &Monitor{current: tt.current, staleThreshold: tt.staleThreshold}
-			result, _, err := currentPower(m)
+			store := &toolsStore{reading: tt.reading}
+			result, _, err := currentPower(context.Background(), store, tt.staleThreshold)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
@@ -75,25 +97,25 @@ func TestEnergySummary(t *testing.T) {
 	ts := time.Unix(1779680954, 0)
 	tests := []struct {
 		name           string
-		current        *Reading
+		reading        *Reading
 		staleThreshold time.Duration
 		wantErr        bool
 		want           EnergyJSON
 	}{
 		{
 			name:    "no reading",
-			current: nil,
+			reading: nil,
 			wantErr: true,
 		},
 		{
 			name:           "stale reading",
-			current:        staleReading(&Reading{Time: ts}),
+			reading:        staleReading(&Reading{Time: ts}),
 			staleThreshold: 5 * time.Second,
 			wantErr:        true,
 		},
 		{
 			name:           "fresh reading",
-			current:        freshReading(&Reading{Time: ts, SolarKWh: 94400.05, LoadKWh: 65023.6, NetKWh: -29376.45}),
+			reading:        freshReading(&Reading{Time: ts, SolarKWh: 94400.05, LoadKWh: 65023.6, NetKWh: -29376.45}),
 			staleThreshold: 5 * time.Second,
 			want:           EnergyJSON{Time: ts.Format(time.RFC3339), SolarKWh: 94400.05, LoadKWh: 65023.6, NetKWh: -29376.45},
 		},
@@ -101,8 +123,8 @@ func TestEnergySummary(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := &Monitor{current: tt.current, staleThreshold: tt.staleThreshold}
-			result, _, err := energySummary(m)
+			store := &toolsStore{reading: tt.reading}
+			result, _, err := energySummary(context.Background(), store, tt.staleThreshold)
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")

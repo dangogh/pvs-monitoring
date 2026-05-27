@@ -1,6 +1,10 @@
 # pvs-monitoring
 
-An MCP server that exposes real-time solar power data from a SunPower PVS6 monitor via WebSocket.
+Monitors a SunPower PVS6 solar gateway and exposes the data via MCP tools for use with Claude Desktop.
+
+Two binaries share a SQLite database:
+- **`pvs-monitor`** — long-running daemon; maintains the WebSocket connection and writes readings to SQLite
+- **`pvs-mcp`** — MCP server; spawned on demand by Claude Desktop; reads from SQLite only
 
 ## Tools
 
@@ -8,10 +12,10 @@ An MCP server that exposes real-time solar power data from a SunPower PVS6 monit
 |------|-------------|
 | `get_current_power` | Instantaneous solar production, home load, and grid draw (kW) |
 | `get_energy_summary` | Cumulative energy totals for solar, load, and grid (kWh) |
-| `get_average_power` | Average power over a time window (e.g. `7d`, `24h`) — requires historical data |
-| `get_device_list` | Per-device readings from all inverters, meters, and battery — requires device list config |
+| `get_average_power` | Average power over a time window (e.g. `7d`, `24h`) |
+| `get_device_list` | Per-device readings from all inverters, meters, and battery |
 
-`get_current_power` and `get_energy_summary` return an error if no reading has arrived yet or if the most recent reading is stale (default: older than 5 seconds).
+`get_current_power` and `get_energy_summary` return an error if no reading exists yet or if the most recent reading is stale (default: older than 5 seconds).
 
 ## Prerequisites
 
@@ -22,7 +26,7 @@ An MCP server that exposes real-time solar power data from a SunPower PVS6 monit
 
 ```sh
 make build
-# produces bin/pvs-monitor
+# produces bin/pvs-monitor and bin/pvs-mcp
 ```
 
 ## Configuration
@@ -48,17 +52,31 @@ device_list:
 
 The serial number is printed on a sticker on the PVS6 unit. Leave `password` empty to disable this feature.
 
-### Precedence
-
-`--addr` flag > `PVS_ADDR` env var > config file > built-in default
-
-### Flags
+### pvs-monitor flags
 
 ```
 --config       path to config file (default: ~/.config/pvs-monitor/config.yaml)
---addr         PVS6 WebSocket address
+--addr         PVS6 WebSocket address (overrides config and PVS_ADDR env var)
 --db           path to SQLite database (default: ~/.local/share/pvs-monitor/readings.db, empty to disable)
 -v, --verbose  enable debug logging
+```
+
+Precedence: `--addr` flag > `PVS_ADDR` env var > config file > built-in default
+
+### pvs-mcp flags
+
+```
+--config       path to config file (default: ~/.config/pvs-monitor/config.yaml)
+--db           path to SQLite database (default: ~/.local/share/pvs-monitor/readings.db)
+-v, --verbose  enable debug logging
+```
+
+## Running
+
+Start the daemon (runs until SIGINT/SIGTERM):
+
+```sh
+bin/pvs-monitor
 ```
 
 ## Claude Desktop integration
@@ -69,10 +87,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "pvs-monitor": {
-      "command": "/path/to/bin/pvs-monitor"
+      "command": "/path/to/bin/pvs-mcp"
     }
   }
 }
 ```
 
-Replace `/path/to/bin/pvs-monitor` with the absolute path to the built binary.
+Replace `/path/to/bin/pvs-mcp` with the absolute path to the built binary.

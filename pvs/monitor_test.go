@@ -281,7 +281,8 @@ type fakeStore struct {
 	count int64
 }
 
-func (f *fakeStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
+func (f *fakeStore) SaveReading(_ context.Context, _ *Reading) error   { return nil }
+func (f *fakeStore) LatestReading(_ context.Context) (*Reading, error) { return nil, nil }
 func (f *fakeStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
 	return PowerAvg{}, nil
 }

@@ -7,8 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"os/signal"
+	"syscall"
 
 	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/pvs"
@@ -25,13 +25,15 @@ func defaultDBPath() string {
 }
 
 func main() {
-	if err := run(os.Args[1:], os.Stderr, &mcp.StdioTransport{}); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(os.Args[1:], os.Stderr, ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "pvs-monitor: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string, logOut io.Writer, transport mcp.Transport) error {
+func run(args []string, logOut io.Writer, ctx context.Context) error {
 	fs := flag.NewFlagSet("pvs-monitor", flag.ContinueOnError)
 	var cfgPath, addr, dbPath string
 	var verbose bool
@@ -74,31 +76,23 @@ func run(args []string, logOut io.Writer, transport mcp.Transport) error {
 	}
 
 	monitor := pvs.NewMonitor(cfg.Addr, cfg, store, logger)
-
-	ctx := context.Background()
-
-	monCtx, cancelMon := context.WithCancel(ctx)
-	defer cancelMon()
 	go func() {
-		if err := monitor.Run(monCtx); err != nil && monCtx.Err() == nil {
+		if err := monitor.Run(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("monitor stopped", "err", err)
 		}
 	}()
 
-	var poller *pvs.DevicePoller
 	if cfg.DeviceList.Password != "" {
-		poller = pvs.NewDevicePoller(cfg.DeviceList, store, logger)
+		poller := pvs.NewDevicePoller(cfg.DeviceList, store, logger)
 		go func() {
-			if err := poller.Run(monCtx); err != nil && monCtx.Err() == nil {
+			if err := poller.Run(ctx); err != nil && ctx.Err() == nil {
 				logger.Error("device poller stopped", "err", err)
 			}
 		}()
 		logger.Info("device list poller starting", "url", cfg.DeviceList.URL, "interval", cfg.DeviceList.Interval.Duration())
 	}
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "pvs-monitor", Version: "0.1.0"}, nil)
-	pvs.RegisterTools(server, monitor, poller)
-
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
-	return server.Run(ctx, transport)
+	<-ctx.Done()
+	return nil
 }

@@ -69,6 +69,24 @@ func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
 	return err
 }
 
+func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT received_at, reading_time, solar_kw, load_kw, net_kw, solar_kwh, load_kwh, net_kwh
+		 FROM readings ORDER BY received_at DESC LIMIT 1`)
+	var receivedAt, readingTime int64
+	var r pvs.Reading
+	err := row.Scan(&receivedAt, &readingTime, &r.SolarKW, &r.LoadKW, &r.NetKW, &r.SolarKWh, &r.LoadKWh, &r.NetKWh)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query latest reading: %w", err)
+	}
+	r.ReceivedAt = time.Unix(receivedAt, 0)
+	r.Time = time.Unix(readingTime, 0)
+	return &r, nil
+}
+
 func (s *Store) AveragePower(ctx context.Context, since time.Time) (pvs.PowerAvg, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*)

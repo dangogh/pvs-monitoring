@@ -195,6 +195,32 @@ func TestSaveAndLatestDevices(t *testing.T) {
 	})
 }
 
+func TestLatestReading(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	t.Run("returns nil when no readings", func(t *testing.T) {
+		s := openTestStore(t)
+		r, err := s.LatestReading(ctx)
+		require.NoError(t, err)
+		assert.Nil(t, r)
+	})
+
+	t.Run("returns most recent reading", func(t *testing.T) {
+		s := openTestStore(t)
+		older := &pvs.Reading{ReceivedAt: now.Add(-time.Minute), Time: now.Add(-time.Minute), SolarKW: 1.0}
+		newer := &pvs.Reading{ReceivedAt: now, Time: now, SolarKW: 2.0}
+		require.NoError(t, s.SaveReading(ctx, older))
+		require.NoError(t, s.SaveReading(ctx, newer))
+
+		got, err := s.LatestReading(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, now.Unix(), got.ReceivedAt.Unix())
+		assert.InDelta(t, 2.0, got.SolarKW, 1e-9)
+	})
+}
+
 func TestSaveReadingPersistsAllFields(t *testing.T) {
 	ctx := context.Background()
 	s := openTestStore(t)

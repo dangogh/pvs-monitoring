@@ -285,7 +285,8 @@ type fakeDeviceStore struct {
 	lastDevices []Device
 }
 
-func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
+func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error   { return nil }
+func (f *fakeDeviceStore) LatestReading(_ context.Context) (*Reading, error) { return nil, nil }
 func (f *fakeDeviceStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
 	return PowerAvg{}, nil
 }
