@@ -87,11 +87,11 @@ func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
 	return &r, nil
 }
 
-func (s *Store) AveragePower(ctx context.Context, since time.Time) (pvs.PowerAvg, error) {
+func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.PowerAvg, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*)
-		 FROM readings WHERE received_at >= ?`,
-		since.Unix(),
+		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
+		since.Unix(), until.Unix(),
 	)
 	var solarKW, loadKW, netKW sql.NullFloat64
 	var samples int
@@ -103,6 +103,23 @@ func (s *Store) AveragePower(ctx context.Context, since time.Time) (pvs.PowerAvg
 		LoadKW:  loadKW.Float64,
 		NetKW:   netKW.Float64,
 		Samples: samples,
+	}, nil
+}
+
+func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.EnergyDelta, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT MAX(solar_kwh)-MIN(solar_kwh), MAX(load_kwh)-MIN(load_kwh), MAX(net_kwh)-MIN(net_kwh)
+		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
+		since.Unix(), until.Unix(),
+	)
+	var solar, load, net sql.NullFloat64
+	if err := row.Scan(&solar, &load, &net); err != nil {
+		return pvs.EnergyDelta{}, fmt.Errorf("query energy delta: %w", err)
+	}
+	return pvs.EnergyDelta{
+		SolarKWh: solar.Float64,
+		LoadKWh:  load.Float64,
+		NetKWh:   net.Float64,
 	}, nil
 }
 

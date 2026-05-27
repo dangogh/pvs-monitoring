@@ -17,7 +17,14 @@ import (
 type noArgs struct{}
 
 type avgArgs struct {
-	Period string `json:"period"`
+	Period string `json:"period,omitempty"`
+	Start  string `json:"start,omitempty"`
+	End    string `json:"end,omitempty"`
+}
+
+type energyArgs struct {
+	Start string `json:"start,omitempty"`
+	End   string `json:"end,omitempty"`
 }
 
 // RegisterTools adds the PVS6 MCP tools to the server.
@@ -35,16 +42,19 @@ func RegisterTools(s *mcp.Server, store Store, cfg config.Config) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_energy_summary",
-		Description: "Returns cumulative energy totals from the PVS6 solar monitor (kWh).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
+		Description: "Returns cumulative energy totals (kWh) from the PVS6. Without arguments returns the latest live totals. With start/end (YYYY-MM-DD or RFC3339) returns energy generated in that period.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args energyArgs) (*mcp.CallToolResult, any, error) {
+		if args.Start != "" || args.End != "" {
+			return energyDelta(ctx, store, args.Start, args.End)
+		}
 		return energySummary(ctx, store, stale)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_average_power",
-		Description: "Returns average power over a time window (e.g. '7d', '24h', '1h'). Requires historical data to have been collected.",
+		Description: "Returns average power. Use period (e.g. '7d', '24h', '1h') for a trailing window, or start/end (YYYY-MM-DD or RFC3339) for a specific range. end defaults to now.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args avgArgs) (*mcp.CallToolResult, any, error) {
-		return averagePower(ctx, store, args.Period)
+		return averagePower(ctx, store, args)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -107,24 +117,117 @@ type avgResult struct {
 	Samples int     `json:"samples"`
 }
 
-func averagePower(ctx context.Context, store Store, period string) (*mcp.CallToolResult, any, error) {
-	d, err := parsePeriod(period)
-	if err != nil {
-		return nil, nil, err
+func parseTimeArg(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t, nil
 	}
-	avg, err := store.AveragePower(ctx, time.Now().Add(-d))
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid time %q: use YYYY-MM-DD or RFC3339", s)
+	}
+	return t, nil
+}
+
+func averagePower(ctx context.Context, store Store, args avgArgs) (*mcp.CallToolResult, any, error) {
+	var since, until time.Time
+	var label string
+
+	if args.Start != "" || args.End != "" {
+		var err error
+		if args.Start == "" {
+			return nil, nil, fmt.Errorf("start is required when end is specified")
+		}
+		since, err = parseTimeArg(args.Start)
+		if err != nil {
+			return nil, nil, err
+		}
+		if args.End != "" {
+			until, err = parseTimeArg(args.End)
+			if err != nil {
+				return nil, nil, err
+			}
+			// end date with no time means end of that day
+			if len(strings.TrimSpace(args.End)) == len("2006-01-02") {
+				until = until.Add(24*time.Hour - time.Second)
+			}
+		} else {
+			until = time.Now()
+		}
+		label = args.Start + "/" + args.End
+	} else {
+		if args.Period == "" {
+			return nil, nil, fmt.Errorf("provide period (e.g. '24h') or start/end dates")
+		}
+		d, err := parsePeriod(args.Period)
+		if err != nil {
+			return nil, nil, err
+		}
+		until = time.Now()
+		since = until.Add(-d)
+		label = args.Period
+	}
+
+	avg, err := store.AveragePower(ctx, since, until)
 	if err != nil {
 		return nil, nil, err
 	}
 	if avg.Samples == 0 {
-		return nil, nil, fmt.Errorf("no readings in the past %s", period)
+		return nil, nil, fmt.Errorf("no readings in range %s", label)
 	}
 	data, err := json.Marshal(avgResult{
-		Period:  period,
+		Period:  label,
 		SolarKW: avg.SolarKW,
 		LoadKW:  avg.LoadKW,
 		NetKW:   avg.NetKW,
 		Samples: avg.Samples,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+	}, nil, nil
+}
+
+type energyDeltaResult struct {
+	Start    string  `json:"start"`
+	End      string  `json:"end"`
+	SolarKWh float64 `json:"solar_kwh"`
+	LoadKWh  float64 `json:"load_kwh"`
+	NetKWh   float64 `json:"net_kwh"`
+}
+
+func energyDelta(ctx context.Context, store Store, startStr, endStr string) (*mcp.CallToolResult, any, error) {
+	if startStr == "" {
+		return nil, nil, fmt.Errorf("start is required")
+	}
+	since, err := parseTimeArg(startStr)
+	if err != nil {
+		return nil, nil, err
+	}
+	var until time.Time
+	if endStr != "" {
+		until, err = parseTimeArg(endStr)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(strings.TrimSpace(endStr)) == len("2006-01-02") {
+			until = until.Add(24*time.Hour - time.Second)
+		}
+	} else {
+		until = time.Now()
+	}
+	delta, err := store.EnergyDelta(ctx, since, until)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := json.Marshal(energyDeltaResult{
+		Start:    since.Format(time.RFC3339),
+		End:      until.Format(time.RFC3339),
+		SolarKWh: delta.SolarKWh,
+		LoadKWh:  delta.LoadKWh,
+		NetKWh:   delta.NetKWh,
 	})
 	if err != nil {
 		return nil, nil, err

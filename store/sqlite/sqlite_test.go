@@ -109,7 +109,7 @@ func TestSaveAndAveragePower(t *testing.T) {
 				require.NoError(t, s.SaveReading(ctx, r))
 			}
 
-			got, err := s.AveragePower(ctx, tt.since)
+			got, err := s.AveragePower(ctx, tt.since, time.Now().Add(time.Hour))
 			require.NoError(t, err)
 			assert.Equal(t, tt.want.Samples, got.Samples)
 			if got.Samples == 0 {

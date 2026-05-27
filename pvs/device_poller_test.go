@@ -287,8 +287,11 @@ type fakeDeviceStore struct {
 
 func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error   { return nil }
 func (f *fakeDeviceStore) LatestReading(_ context.Context) (*Reading, error) { return nil, nil }
-func (f *fakeDeviceStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
+func (f *fakeDeviceStore) AveragePower(_ context.Context, _, _ time.Time) (PowerAvg, error) {
 	return PowerAvg{}, nil
+}
+func (f *fakeDeviceStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta, error) {
+	return EnergyDelta{}, nil
 }
 func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ time.Time) error {
 	f.mu.Lock()

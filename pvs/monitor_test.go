@@ -283,8 +283,11 @@ type fakeStore struct {
 
 func (f *fakeStore) SaveReading(_ context.Context, _ *Reading) error   { return nil }
 func (f *fakeStore) LatestReading(_ context.Context) (*Reading, error) { return nil, nil }
-func (f *fakeStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
+func (f *fakeStore) AveragePower(_ context.Context, _, _ time.Time) (PowerAvg, error) {
 	return PowerAvg{}, nil
+}
+func (f *fakeStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta, error) {
+	return EnergyDelta{}, nil
 }
 func (f *fakeStore) CountReadings(_ context.Context) (int64, error)               { return f.count, nil }
 func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }

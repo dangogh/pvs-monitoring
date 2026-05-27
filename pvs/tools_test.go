@@ -22,8 +22,11 @@ func (f *toolsStore) SaveReading(_ context.Context, _ *Reading) error { return n
 func (f *toolsStore) LatestReading(_ context.Context) (*Reading, error) {
 	return f.reading, f.readingErr
 }
-func (f *toolsStore) AveragePower(_ context.Context, _ time.Time) (PowerAvg, error) {
+func (f *toolsStore) AveragePower(_ context.Context, _, _ time.Time) (PowerAvg, error) {
 	return f.avg, f.avgErr
+}
+func (f *toolsStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta, error) {
+	return EnergyDelta{}, nil
 }
 func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
 func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
