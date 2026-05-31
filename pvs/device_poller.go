@@ -2,7 +2,9 @@ package pvs
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"log/slog"
@@ -42,6 +44,33 @@ type DevicePoller struct {
 	current []Device
 }
 
+// newPVSTLSConfig returns a TLS config for the PVS6 HTTPS connection.
+// When fingerprint is non-empty the certificate is pinned to that SHA-256 digest
+// (hex, colons optional); otherwise verification is skipped entirely.
+// InsecureSkipVerify must remain true in both cases because the PVS6 uses a
+// self-signed cert that Go would reject before calling VerifyPeerCertificate.
+func newPVSTLSConfig(fingerprint string) *tls.Config {
+	cfg := &tls.Config{ //nolint:gosec
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"http/1.1"},
+	}
+	if fingerprint == "" {
+		return cfg
+	}
+	want := strings.ToLower(strings.ReplaceAll(fingerprint, ":", ""))
+	cfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+		if len(rawCerts) == 0 {
+			return fmt.Errorf("pvs6: no certificate presented")
+		}
+		got := fmt.Sprintf("%x", sha256.Sum256(rawCerts[0]))
+		if got != want {
+			return fmt.Errorf("pvs6: certificate fingerprint mismatch: got %s want %s", got, want)
+		}
+		return nil
+	}
+	return cfg
+}
+
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
 	base := strings.TrimRight(cfg.URL, "/")
@@ -63,10 +92,7 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 			Transport: &http.Transport{
 				// PVS6 uses a self-signed cert; force HTTP/1.1 to avoid Go's HTTP/2
 				// client hanging on ALPN negotiation with InsecureSkipVerify.
-				TLSClientConfig: &tls.Config{ //nolint:gosec
-					InsecureSkipVerify: true,
-					NextProtos:         []string{"http/1.1"},
-				},
+				TLSClientConfig: newPVSTLSConfig(cfg.TLSFingerprint),
 			},
 		},
 		logger: logger,

@@ -18,3 +18,8 @@ device_list:
   interval: 60s
   username: ssm_owner
   password: ""                      # last 5 characters of your PVS serial number
+  # tls_fingerprint pins the PVS6 TLS certificate (SHA-256, colons optional).
+  # Obtain with: openssl s_client -connect your-pvs6-ip:443 </dev/null 2>/dev/null \
+  #   | openssl x509 -noout -fingerprint -sha256
+  # When set, MITM attacks are detected even though the cert is self-signed.
+  # tls_fingerprint: "AA:BB:CC:..."

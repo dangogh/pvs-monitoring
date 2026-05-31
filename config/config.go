@@ -36,6 +36,10 @@ type DeviceListConfig struct {
 	// Password is the last 5 characters of the PVS serial number.
 	// An empty value disables the device-list poller.
 	Password string `yaml:"password"`
+	// TLSFingerprint is the expected SHA-256 fingerprint of the PVS6 TLS certificate
+	// (hex, with or without colon separators). When set, the certificate is pinned
+	// instead of blindly skipping verification. Leave empty to use legacy InsecureSkipVerify.
+	TLSFingerprint string `yaml:"tls_fingerprint,omitempty"`
 }
 
 // Config holds all runtime configuration for pvs-monitor.

@@ -18,7 +18,19 @@ func (s *apiServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
-	return mux
+	return corsMiddleware(mux)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type currentReading struct {

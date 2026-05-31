@@ -28,13 +28,18 @@ func main() {
 
 func run(args []string, ctx context.Context) error {
 	fs := flag.NewFlagSet("pvs-ui", flag.ContinueOnError)
-	var listenAddr, apiBase string
+	var listenAddr, apiBase, tlsCert, tlsKey string
 	var verbose bool
 	fs.StringVar(&listenAddr, "addr", ":8080", "HTTP listen address")
-	fs.StringVar(&apiBase, "api", "http://localhost:8081", "pvs-api base URL")
+	fs.StringVar(&apiBase, "api", "https://localhost:8081", "pvs-api base URL")
+	fs.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (optional)")
+	fs.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (optional)")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if (tlsCert == "") != (tlsKey == "") {
+		return fmt.Errorf("-tls-cert and -tls-key must both be provided or both be omitted")
 	}
 
 	level := slog.LevelInfo
@@ -60,8 +65,14 @@ func run(args []string, ctx context.Context) error {
 	}()
 
 	logger.Info("pvs-ui listening", "addr", listenAddr, "api", apiBase)
-	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
-		return err
+	if tlsCert != "" {
+		if err := httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
+			return err
+		}
+	} else {
+		if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+			return err
+		}
 	}
 	return nil
 }

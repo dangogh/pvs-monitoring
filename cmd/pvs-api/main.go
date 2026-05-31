@@ -33,13 +33,18 @@ func main() {
 
 func run(args []string, ctx context.Context) error {
 	fs := flag.NewFlagSet("pvs-api", flag.ContinueOnError)
-	var dbPath, listenAddr string
+	var dbPath, listenAddr, tlsCert, tlsKey string
 	var verbose bool
 	fs.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database")
-	fs.StringVar(&listenAddr, "addr", ":8081", "HTTP listen address")
+	fs.StringVar(&listenAddr, "addr", ":8081", "HTTPS listen address")
+	fs.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (required)")
+	fs.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (required)")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if tlsCert == "" || tlsKey == "" {
+		return fmt.Errorf("-tls-cert and -tls-key are required; generate with: openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -days 3650 -nodes -keyout server.key -out server.crt -subj '/CN=pvs-api'")
 	}
 
 	level := slog.LevelInfo
@@ -62,8 +67,10 @@ func run(args []string, ctx context.Context) error {
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
+	// TODO: replace -tls-cert/-tls-key with a -domain flag that wires autocert.Manager here
+	// for public deployments using Let's Encrypt.
 	logger.Info("pvs-api listening", "addr", listenAddr)
-	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+	if err := httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
 		return err
 	}
 	return nil

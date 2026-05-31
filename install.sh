@@ -13,6 +13,7 @@ need() {
 
 need git
 need go
+need openssl
 
 GO_VERSION=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1)
 echo "Using $GO_VERSION"
@@ -48,6 +49,26 @@ else
     echo "Config already exists at $CONFIG_DIR/config.yaml — not overwritten."
 fi
 
+# TLS certificate for pvs-api
+TLS_CERT="$DATA_DIR/server.crt"
+TLS_KEY="$DATA_DIR/server.key"
+if [[ ! -f "$TLS_CERT" || ! -f "$TLS_KEY" ]]; then
+    echo "Generating self-signed TLS certificate for pvs-api..."
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+        -days 3650 -nodes \
+        -keyout "$TLS_KEY" -out "$TLS_CERT" \
+        -subj "/CN=$(hostname)" \
+        2>/dev/null
+    chmod 600 "$TLS_KEY"
+    echo "Certificate: $TLS_CERT"
+    echo "Private key: $TLS_KEY"
+    echo ""
+    echo "NOTE: This is a self-signed cert. Your browser will show a security warning"
+    echo "for pvs-ui. Accept it once (or add it to your trust store) to proceed."
+else
+    echo "TLS certificate already exists at $TLS_CERT — not regenerated."
+fi
+
 # systemd services
 if command -v systemctl >/dev/null 2>&1; then
     LOG_FILE="$DATA_DIR/pvs-monitor.log"
@@ -81,7 +102,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=$INSTALL_DIR/pvs-api
+ExecStart=$INSTALL_DIR/pvs-api -tls-cert $TLS_CERT -tls-key $TLS_KEY
 Restart=on-failure
 RestartSec=10
 User=$USER
@@ -99,7 +120,7 @@ Description=PVS6 solar dashboard UI
 After=pvs-api.service
 
 [Service]
-ExecStart=$INSTALL_DIR/pvs-ui -api http://localhost:8081
+ExecStart=$INSTALL_DIR/pvs-ui -api https://localhost:8081
 Restart=on-failure
 RestartSec=10
 User=$USER
@@ -118,7 +139,8 @@ EOF
     echo "Start them with:  sudo systemctl start pvs-monitor pvs-api pvs-ui"
     echo "Logs:             tail -f $LOG_FILE"
     echo "                  tail -f $API_LOG_FILE"
-    echo "Dashboard:        http://$(hostname -I | awk '{print $1}'):8080"
+    echo "Dashboard:        http://$(hostname -I | awk '{print $1}'):8080  (pvs-ui, plain HTTP)"
+    echo "API (HTTPS):      https://$(hostname -I | awk '{print $1}'):8081"
 else
     echo ""
     echo "systemd not found — skipping service install."
