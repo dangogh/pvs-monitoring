@@ -29,11 +29,13 @@ fi
 echo "Building binaries..."
 (cd /tmp/pvs-monitoring && go build -o /tmp/pvs-monitor-bin ./cmd/pvs-monitor)
 (cd /tmp/pvs-monitoring && go build -o /tmp/pvs-api-bin     ./cmd/pvs-api)
+(cd /tmp/pvs-monitoring && go build -o /tmp/pvs-ui-bin      ./cmd/pvs-ui)
 
 echo "Installing to $INSTALL_DIR (may prompt for sudo)..."
 sudo install -m 755 /tmp/pvs-monitor-bin "$INSTALL_DIR/pvs-monitor"
 sudo install -m 755 /tmp/pvs-api-bin     "$INSTALL_DIR/pvs-api"
-rm /tmp/pvs-monitor-bin /tmp/pvs-api-bin
+sudo install -m 755 /tmp/pvs-ui-bin      "$INSTALL_DIR/pvs-ui"
+rm /tmp/pvs-monitor-bin /tmp/pvs-api-bin /tmp/pvs-ui-bin
 
 # Config
 mkdir -p "$CONFIG_DIR" "$DATA_DIR"
@@ -91,18 +93,37 @@ StandardError=append:$API_LOG_FILE
 WantedBy=multi-user.target
 EOF
 
+    sudo tee "/etc/systemd/system/pvs-ui.service" > /dev/null <<EOF
+[Unit]
+Description=PVS6 solar dashboard UI
+After=pvs-api.service
+
+[Service]
+ExecStart=$INSTALL_DIR/pvs-ui -api http://localhost:8081
+Restart=on-failure
+RestartSec=10
+User=$USER
+Environment=HOME=$HOME
+StandardOutput=append:$DATA_DIR/pvs-ui.log
+StandardError=append:$DATA_DIR/pvs-ui.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     sudo systemctl daemon-reload
-    sudo systemctl enable pvs-monitor pvs-api
+    sudo systemctl enable pvs-monitor pvs-api pvs-ui
     echo ""
     echo "Services installed and enabled."
-    echo "Start them with:  sudo systemctl start pvs-monitor pvs-api"
+    echo "Start them with:  sudo systemctl start pvs-monitor pvs-api pvs-ui"
     echo "Logs:             tail -f $LOG_FILE"
     echo "                  tail -f $API_LOG_FILE"
+    echo "Dashboard:        http://$(hostname -I | awk '{print $1}'):8080"
 else
     echo ""
     echo "systemd not found — skipping service install."
-    echo "Run manually:  pvs-monitor &  pvs-api &"
+    echo "Run manually:  pvs-monitor &  pvs-api &  pvs-ui &"
 fi
 
 echo ""
-echo "Done. Installed to $INSTALL_DIR: pvs-monitor, pvs-api"
+echo "Done. Installed to $INSTALL_DIR: pvs-monitor, pvs-api, pvs-ui"
