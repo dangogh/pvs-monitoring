@@ -59,7 +59,12 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // PVS6 uses a self-signed cert
+				// PVS6 uses a self-signed cert; force HTTP/1.1 to avoid Go's HTTP/2
+				// client hanging on ALPN negotiation with InsecureSkipVerify.
+				TLSClientConfig: &tls.Config{ //nolint:gosec
+					InsecureSkipVerify: true,
+					NextProtos:         []string{"http/1.1"},
+				},
 			},
 		},
 		logger: logger,
