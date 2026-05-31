@@ -420,10 +420,13 @@ function renderChart(series, rangeLabel) {
   }
 }
 
+// ── API base (resolved from /config.json served by pvs-ui) ───
+let API_BASE = '';
+
 // ── Data loading ──────────────────────────────────────────────
 async function loadRange(range) {
   try {
-    const resp = await fetch('/api/data?range=' + range);
+    const resp = await fetch(API_BASE + '/api/data?range=' + range);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
 
@@ -437,7 +440,7 @@ async function loadRange(range) {
 
 async function refreshCurrent() {
   try {
-    const resp = await fetch('/api/current');
+    const resp = await fetch(API_BASE + '/api/current');
     if (!resp.ok) return;
     updateCurrent(await resp.json());
   } catch (_) { /* network hiccup — ignore */ }
@@ -454,8 +457,14 @@ document.querySelectorAll('.range-btn').forEach(btn => {
 });
 
 // ── Init ──────────────────────────────────────────────────────
-loadRange('today');
-setInterval(refreshCurrent, 5000);
+(async () => {
+  try {
+    const cfg = await fetch('/config.json').then(r => r.json());
+    API_BASE = (cfg.api_base || '').replace(/\/$/, '');
+  } catch (_) { /* fall back to same origin */ }
+  loadRange('today');
+  setInterval(refreshCurrent, 5000);
+})();
 </script>
 
 </body>

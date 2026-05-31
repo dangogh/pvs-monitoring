@@ -6,28 +6,21 @@ import (
 	"net/http"
 	"time"
 
-	_ "embed"
-
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
-//go:embed static/index.html
-var indexHTML []byte
-
-type server struct {
+type apiServer struct {
 	store  pvs.Store
 	logger *slog.Logger
 }
 
-func (s *server) routes() http.Handler {
+func (s *apiServer) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
 	return mux
 }
 
-// currentReading is the JSON response for /api/current.
 type currentReading struct {
 	SolarKW   float64   `json:"solar_kw"`
 	LoadKW    float64   `json:"load_kw"`
@@ -35,7 +28,6 @@ type currentReading struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// dataResponse is the JSON response for /api/data.
 type dataResponse struct {
 	Range   rangeInfo      `json:"range"`
 	Current *currentReading `json:"current"`
@@ -58,19 +50,14 @@ type summaryData struct {
 	AvgLoadKW  float64 `json:"avg_load_kw"`
 }
 
-// seriesPoint uses compact keys for small JSON payload.
+// seriesPoint uses compact keys to minimise JSON payload size.
 type seriesPoint struct {
 	TimeMS  int64   `json:"t"` // milliseconds — Highcharts datetime axis format
 	SolarKW float64 `json:"s"`
 	LoadKW  float64 `json:"l"`
 }
 
-func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(indexHTML)
-}
-
-func (s *server) handleCurrent(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleCurrent(w http.ResponseWriter, r *http.Request) {
 	reading, err := s.store.LatestReading(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -88,7 +75,7 @@ func (s *server) handleCurrent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) handleData(w http.ResponseWriter, r *http.Request) {
+func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 	rangeName := r.URL.Query().Get("range")
 	if rangeName == "" {
 		rangeName = "today"
@@ -137,7 +124,6 @@ func (s *server) handleData(w http.ResponseWriter, r *http.Request) {
 		},
 		Series: toSeriesPoints(pts),
 	}
-
 	if reading != nil {
 		cr := currentReading{
 			SolarKW:   reading.SolarKW,
@@ -154,11 +140,7 @@ func (s *server) handleData(w http.ResponseWriter, r *http.Request) {
 func toSeriesPoints(pts []pvs.SeriesPoint) []seriesPoint {
 	out := make([]seriesPoint, len(pts))
 	for i, p := range pts {
-		out[i] = seriesPoint{
-			TimeMS:  p.Time.UnixMilli(),
-			SolarKW: p.SolarKW,
-			LoadKW:  p.LoadKW,
-		}
+		out[i] = seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: p.SolarKW, LoadKW: p.LoadKW}
 	}
 	return out
 }
@@ -168,7 +150,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// parseRange returns since, until, and a human label for the given range name.
 func parseRange(name string, now time.Time) (since, until time.Time, label string) {
 	until = now
 	loc := now.Location()
@@ -179,8 +160,7 @@ func parseRange(name string, now time.Time) (since, until time.Time, label strin
 	case "today":
 		return today, until, "Today"
 	case "this_week":
-		weekday := int(now.Weekday()) // Sunday=0
-		return today.AddDate(0, 0, -weekday), until, "This Week"
+		return today.AddDate(0, 0, -int(now.Weekday())), until, "This Week"
 	case "this_month":
 		return time.Date(y, m, 1, 0, 0, 0, 0, loc), until, "This Month"
 	case "this_year":
@@ -200,17 +180,16 @@ func parseRange(name string, now time.Time) (since, until time.Time, label strin
 	}
 }
 
-// bucketSeconds returns an appropriate time-bucket size for a given range span.
 func bucketSeconds(since, until time.Time) int64 {
 	span := until.Sub(since)
 	switch {
 	case span <= 48*time.Hour:
-		return 300 // 5-minute buckets
+		return 300
 	case span <= 14*24*time.Hour:
-		return 3600 // 1-hour buckets
+		return 3600
 	case span <= 90*24*time.Hour:
-		return 6 * 3600 // 6-hour buckets
+		return 6 * 3600
 	default:
-		return 86400 // 1-day buckets
+		return 86400
 	}
 }

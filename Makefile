@@ -8,6 +8,7 @@ fmt:
 build:
 	go build -o $(BIN_DIR)/pvs-monitor ./cmd/pvs-monitor
 	go build -o $(BIN_DIR)/pvs-mcp ./cmd/pvs-mcp
+	go build -o $(BIN_DIR)/pvs-api ./cmd/pvs-api
 	go build -o $(BIN_DIR)/pvs-ui ./cmd/pvs-ui
 
 test:

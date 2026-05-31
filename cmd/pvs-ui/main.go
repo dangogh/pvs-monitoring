@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -10,17 +11,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/dangogh/pvs-monitoring/store/sqlite"
+	_ "embed"
 )
 
-func defaultDBPath() string {
-	home, _ := os.UserHomeDir()
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		base = home + "/.local/share"
-	}
-	return base + "/pvs-monitor/readings.db"
-}
+//go:embed static/index.html
+var indexHTML []byte
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -33,10 +28,10 @@ func main() {
 
 func run(args []string, ctx context.Context) error {
 	fs := flag.NewFlagSet("pvs-ui", flag.ContinueOnError)
-	var dbPath, listenAddr string
+	var listenAddr, apiBase string
 	var verbose bool
-	fs.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database")
 	fs.StringVar(&listenAddr, "addr", ":8080", "HTTP listen address")
+	fs.StringVar(&apiBase, "api", "http://localhost:8081", "pvs-api base URL")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -48,21 +43,23 @@ func run(args []string, ctx context.Context) error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	store, err := sqlite.Open(dbPath)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer store.Close()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(indexHTML)
+	})
+	mux.HandleFunc("GET /config.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"api_base": apiBase})
+	})
 
-	srv := &server{store: store, logger: logger}
-	httpSrv := &http.Server{Addr: listenAddr, Handler: srv.routes()}
-
+	httpSrv := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {
 		<-ctx.Done()
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-ui listening", "addr", listenAddr)
+	logger.Info("pvs-ui listening", "addr", listenAddr, "api", apiBase)
 	if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
 		return err
 	}
