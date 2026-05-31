@@ -74,24 +74,22 @@ func newPVSTLSConfig(fingerprint string) *tls.Config {
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
 	base := strings.TrimRight(cfg.URL, "/")
-	httpsBase := strings.Replace(base, "http://", "https://", 1)
 	authURL := cfg.AuthURL
 	if authURL == "" {
-		// Auth requires HTTPS; derive from the base URL.
-		authURL = httpsBase + "/auth?login"
+		authURL = base + "/auth?login"
 	}
 	return &DevicePoller{
 		url:      base + "/cgi-bin/dl_cgi/devices/list",
 		authURL:  authURL,
-		varsBase: httpsBase,
+		varsBase: base,
 		interval: cfg.Interval.Duration(),
 		username: cfg.Username,
 		password: cfg.Password,
 		client: &http.Client{
 			Timeout: 15 * time.Second,
 			Transport: &http.Transport{
-				// PVS6 uses a self-signed cert; force HTTP/1.1 to avoid Go's HTTP/2
-				// client hanging on ALPN negotiation with InsecureSkipVerify.
+				// Force HTTP/1.1 in case TLS is in use; avoids Go's HTTP/2 client
+				// hanging on ALPN negotiation with InsecureSkipVerify.
 				TLSClientConfig: newPVSTLSConfig(cfg.TLSFingerprint),
 			},
 		},

@@ -343,8 +343,13 @@ function updateCurrent(c) {
   cardEl.setAttribute('aria-label', exporting ? 'Exporting to grid' : 'Importing from grid');
 
   const age = Math.round((Date.now() - new Date(c.updated_at).getTime()) / 1000);
-  document.getElementById('status').textContent =
-    'Last reading ' + (age < 5 ? 'just now' : age + 's ago');
+  let ageStr;
+  if      (age < 5)    ageStr = 'just now';
+  else if (age < 60)   ageStr = age + 's ago';
+  else if (age < 3600) ageStr = Math.floor(age / 60) + 'm ago';
+  else if (age < 86400)ageStr = Math.floor(age / 3600) + 'h ago';
+  else                 ageStr = Math.floor(age / 86400) + 'd ago';
+  document.getElementById('status').textContent = 'Last reading ' + ageStr;
 }
 
 // ── Summary cards ─────────────────────────────────────────────
