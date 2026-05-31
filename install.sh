@@ -18,6 +18,15 @@ need openssl
 GO_VERSION=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1)
 echo "Using $GO_VERSION"
 
+# Backup any existing installation before making changes
+BACKUP_DEST="${HOME}/backups-pvs"
+if [[ -f "$CONFIG_DIR/config.yaml" || -f "${DATA_DIR}/readings.db" ]]; then
+    echo "Backing up existing installation to $BACKUP_DEST..."
+    bash /tmp/pvs-monitoring/backup.sh -d "$BACKUP_DEST" -s "$DATA_DIR" -c "$CONFIG_DIR" || \
+        echo "Warning: backup failed — continuing anyway"
+    echo ""
+fi
+
 # Clone or update
 if [[ -d /tmp/pvs-monitoring ]]; then
     echo "Updating existing clone..."
@@ -73,6 +82,17 @@ fi
 if command -v systemctl >/dev/null 2>&1; then
     LOG_FILE="$DATA_DIR/pvs-monitor.log"
     API_LOG_FILE="$DATA_DIR/pvs-api.log"
+
+    # Snapshot which pvs services are currently active before we change anything.
+    PVS_SERVICES=(pvs-monitor pvs-api pvs-ui)
+    declare -A WAS_ACTIVE
+    for svc in "${PVS_SERVICES[@]}"; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            WAS_ACTIVE[$svc]=1
+            echo "Stopping $svc..."
+            sudo systemctl stop "$svc"
+        fi
+    done
 
     echo "Installing systemd services..."
 
@@ -134,9 +154,21 @@ EOF
 
     sudo systemctl daemon-reload
     sudo systemctl enable pvs-monitor pvs-api pvs-ui
+
+    # Restart services that were running before; start any that are newly enabled.
     echo ""
-    echo "Services installed and enabled."
-    echo "Start them with:  sudo systemctl start pvs-monitor pvs-api pvs-ui"
+    for svc in "${PVS_SERVICES[@]}"; do
+        if [[ -n "${WAS_ACTIVE[$svc]:-}" ]]; then
+            echo "Restarting $svc..."
+            sudo systemctl start "$svc"
+        elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+            echo "Starting $svc (newly enabled)..."
+            sudo systemctl start "$svc"
+        fi
+    done
+
+    echo ""
+    echo "Services installed and running."
     echo "Logs:             tail -f $LOG_FILE"
     echo "                  tail -f $API_LOG_FILE"
     echo "Dashboard:        http://$(hostname -I | awk '{print $1}'):8080  (pvs-ui, plain HTTP)"
