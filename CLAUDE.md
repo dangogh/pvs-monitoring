@@ -50,3 +50,14 @@ PVS6 WebSocket                 SQLite reads only
 - All MCP tools read from `Store`. `get_current_power` and `get_energy_summary` call `store.LatestReading()` and check staleness against `cfg.StaleThreshold`.
 - `get_device_list` reads from `store.LatestDevices()` — all four tools are always registered; they return an error if no data exists yet.
 - Reconnect uses exponential backoff between `ReconnectInitialInterval` and `ReconnectMaxInterval`.
+- `DevicePoller` uses a two-step HTTPS auth flow: POST to `/auth?login` with Basic auth to get a session cookie, then use it for subsequent requests. The HTTP client forces HTTP/1.1 (`TLSClientConfig.NextProtos`) to avoid a hang caused by Go's HTTP/2 client + `InsecureSkipVerify` on the PVS6's self-signed cert.
+- On startup, `DevicePoller` enables WebSocket telemetry via `POST /vars?set=/sys/telemetryws/enable=1`. PVS6 firmware 2025.10+ disables this by default and resets it on reboot.
+
+### Running as a service
+
+```sh
+cp launchd/com.dangogh.pvs-monitor.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.dangogh.pvs-monitor.plist
+```
+
+Logs: `~/.local/share/pvs-monitor/pvs-monitor.log`
