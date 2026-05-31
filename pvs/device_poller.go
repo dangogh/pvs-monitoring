@@ -2,10 +2,12 @@ package pvs
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +29,7 @@ type httpDoer interface {
 // DevicePoller periodically fetches the PVS6 device list via HTTP.
 type DevicePoller struct {
 	url      string
+	authURL  string
 	interval time.Duration
 	username string
 	password string
@@ -40,14 +43,27 @@ type DevicePoller struct {
 
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
+	base := strings.TrimRight(cfg.URL, "/")
+	authURL := cfg.AuthURL
+	if authURL == "" {
+		// Auth requires HTTPS; derive from the base URL.
+		authBase := strings.Replace(base, "http://", "https://", 1)
+		authURL = authBase + "/auth?login"
+	}
 	return &DevicePoller{
-		url:      cfg.URL + "/cgi-bin/dl_cgi/devices/list",
+		url:      base + "/cgi-bin/dl_cgi/devices/list",
+		authURL:  authURL,
 		interval: cfg.Interval.Duration(),
 		username: cfg.Username,
 		password: cfg.Password,
-		client:   &http.Client{Timeout: 15 * time.Second},
-		logger:   logger,
-		store:    store,
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // PVS6 uses a self-signed cert
+			},
+		},
+		logger: logger,
+		store:  store,
 	}
 }
 
@@ -98,12 +114,47 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 	return nil
 }
 
+// login authenticates with the PVS6 and returns the session cookie.
+func (p *DevicePoller) login(ctx context.Context) (*http.Cookie, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.authURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build auth request: %w", err)
+	}
+	req.SetBasicAuth(p.username, p.password)
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, authError{status: resp.Status}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("auth returned %s", resp.Status)
+	}
+
+	for _, c := range resp.Cookies() {
+		if c.Name == "session" {
+			return c, nil
+		}
+	}
+	return nil, fmt.Errorf("auth response missing session cookie")
+}
+
 func (p *DevicePoller) fetch(ctx context.Context) ([]Device, error) {
+	cookie, err := p.login(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	req.SetBasicAuth(p.username, p.password)
+	req.AddCookie(cookie)
 
 	resp, err := p.client.Do(req)
 	if err != nil {

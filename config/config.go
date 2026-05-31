@@ -29,6 +29,8 @@ const defaultAddr = "ws://192.168.191.155:9002"
 // DeviceListConfig holds configuration for the HTTP device-list poller.
 type DeviceListConfig struct {
 	URL      string   `yaml:"url"`
+	// AuthURL overrides the login endpoint (default: URL with https:// + /auth?login).
+	AuthURL  string   `yaml:"auth_url,omitempty"`
 	Interval Duration `yaml:"interval"`
 	Username string   `yaml:"username"`
 	// Password is the last 5 characters of the PVS serial number.

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,10 +27,27 @@ func deviceListBody(devices []map[string]any) []byte {
 	return data
 }
 
+// newDevServer creates a test server with separate handlers for auth and device list.
+// authHandler may be nil to use a default that always returns a valid session cookie.
+func newDevServer(t *testing.T, authHandler, devHandler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	if authHandler == nil {
+		authHandler = func(w http.ResponseWriter, r *http.Request) {
+			http.SetCookie(w, &http.Cookie{Name: "session", Value: "testsession"})
+			_, _ = fmt.Fprint(w, `{"session":"testsession"}`)
+		}
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/cgi-bin/dl_cgi/devices/list", devHandler)
+	return httptest.NewServer(mux)
+}
+
 func newTestPoller(t *testing.T, srv *httptest.Server, store Store) *DevicePoller {
 	t.Helper()
 	cfg := config.DeviceListConfig{
 		URL:      srv.URL,
+		AuthURL:  srv.URL + "/auth",
 		Interval: config.Duration(time.Hour), // long — tests drive polling manually
 		Username: "user",
 		Password: "pass",
@@ -45,34 +63,34 @@ var twoDevices = []map[string]any{
 func TestDevicePollerFetch(t *testing.T) {
 	tests := []struct {
 		name        string
-		handler     http.HandlerFunc
+		devHandler  http.HandlerFunc
 		wantDevices int
 		wantErr     string
 	}{
 		{
 			name: "returns devices on 200",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			devHandler: func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write(deviceListBody(twoDevices))
 			},
 			wantDevices: 2,
 		},
 		{
 			name: "401 returns authError",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			devHandler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 			},
 			wantErr: "authentication failed",
 		},
 		{
 			name: "403 returns authError",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			devHandler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusForbidden)
 			},
 			wantErr: "authentication failed",
 		},
 		{
 			name: "500 returns generic error",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			devHandler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 			wantErr: "500",
@@ -81,7 +99,7 @@ func TestDevicePollerFetch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(tt.handler)
+			srv := newDevServer(t, nil, tt.devHandler)
 			defer srv.Close()
 			p := newTestPoller(t, srv, nil)
 
@@ -99,10 +117,15 @@ func TestDevicePollerFetch(t *testing.T) {
 
 func TestDevicePollerFetchSetsBasicAuth(t *testing.T) {
 	var gotUser, gotPass string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	authHandler := func(w http.ResponseWriter, r *http.Request) {
 		gotUser, gotPass, _ = r.BasicAuth()
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "testsession"})
+		_, _ = fmt.Fprint(w, `{"session":"testsession"}`)
+	}
+	devHandler := func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(deviceListBody(nil))
-	}))
+	}
+	srv := newDevServer(t, authHandler, devHandler)
 	defer srv.Close()
 
 	p := newTestPoller(t, srv, nil)
@@ -112,10 +135,51 @@ func TestDevicePollerFetchSetsBasicAuth(t *testing.T) {
 	assert.Equal(t, "pass", gotPass)
 }
 
+func TestDevicePollerFetchSendsCookieToDeviceList(t *testing.T) {
+	var gotCookie string
+	devHandler := func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie("session"); err == nil {
+			gotCookie = c.Value
+		}
+		_, _ = w.Write(deviceListBody(nil))
+	}
+	srv := newDevServer(t, nil, devHandler)
+	defer srv.Close()
+
+	p := newTestPoller(t, srv, nil)
+	_, err := p.fetch(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "testsession", gotCookie)
+}
+
+func TestDevicePollerAuthFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		authStatus int
+	}{
+		{"401 from auth", http.StatusUnauthorized},
+		{"403 from auth", http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authHandler := func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.authStatus)
+			}
+			srv := newDevServer(t, authHandler, func(w http.ResponseWriter, r *http.Request) {})
+			defer srv.Close()
+
+			p := newTestPoller(t, srv, nil)
+			_, err := p.fetch(context.Background())
+			require.Error(t, err)
+			assert.ErrorAs(t, err, &authError{})
+		})
+	}
+}
+
 func TestDevicePollerCurrent(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(deviceListBody(twoDevices))
-	}))
+	})
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
 
@@ -130,9 +194,9 @@ func TestDevicePollerCurrent(t *testing.T) {
 }
 
 func TestDevicePollerPollCallsStore(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(deviceListBody(twoDevices))
-	}))
+	})
 	defer srv.Close()
 
 	store := &fakeDeviceStore{}
@@ -147,9 +211,9 @@ func TestDevicePollerPollCallsStore(t *testing.T) {
 }
 
 func TestDevicePollerRunStopsOnAuthError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newDevServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-	}))
+	}, func(w http.ResponseWriter, r *http.Request) {})
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
 	p.interval = 10 * time.Millisecond
@@ -160,14 +224,14 @@ func TestDevicePollerRunStopsOnAuthError(t *testing.T) {
 
 func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
 	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		_, _ = w.Write(deviceListBody(twoDevices))
-	}))
+	})
 	defer srv.Close()
 
 	p := newTestPoller(t, srv, nil)
@@ -184,9 +248,9 @@ func TestDevicePollerRunContinuesOnTransientError(t *testing.T) {
 }
 
 func TestDevicePollerRunCancelledByContext(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(deviceListBody(twoDevices))
-	}))
+	})
 	defer srv.Close()
 	p := newTestPoller(t, srv, nil)
 	p.interval = 10 * time.Millisecond
@@ -196,6 +260,24 @@ func TestDevicePollerRunCancelledByContext(t *testing.T) {
 
 	err := p.Run(ctx)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// twoStepDoer handles auth (returns a session cookie) and delegates device list to devDoer.
+type twoStepDoer struct {
+	devDoer *fakeDoer
+}
+
+func (d *twoStepDoer) Do(req *http.Request) (*http.Response, error) {
+	if strings.Contains(req.URL.Path, "auth") {
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Set-Cookie": []string{"session=testsession"}},
+			Body:       io.NopCloser(strings.NewReader(`{"session":"testsession"}`)),
+		}
+		return resp, nil
+	}
+	return d.devDoer.Do(req)
 }
 
 // fakeDoer implements httpDoer with a configurable response.
@@ -212,6 +294,7 @@ func (f *fakeDoer) Do(_ *http.Request) (*http.Response, error) {
 	return &http.Response{
 		StatusCode: f.statusCode,
 		Status:     fmt.Sprintf("%d %s", f.statusCode, http.StatusText(f.statusCode)),
+		Header:     http.Header{},
 		Body:       io.NopCloser(bytes.NewReader(f.body)),
 	}, nil
 }
@@ -220,6 +303,7 @@ func newPollerWithDoer(t *testing.T, doer httpDoer) *DevicePoller {
 	t.Helper()
 	p := &DevicePoller{
 		url:      "http://fake/cgi-bin/dl_cgi/devices/list",
+		authURL:  "http://fake/auth",
 		interval: time.Hour,
 		username: "user",
 		password: "pass",
@@ -232,40 +316,40 @@ func newPollerWithDoer(t *testing.T, doer httpDoer) *DevicePoller {
 func TestDevicePollerFetchWithFakeDoer(t *testing.T) {
 	tests := []struct {
 		name        string
-		doer        *fakeDoer
+		devDoer     *fakeDoer
 		wantDevices int
 		wantErr     string
 	}{
 		{
 			name:        "200 returns devices",
-			doer:        &fakeDoer{statusCode: http.StatusOK, body: deviceListBody(twoDevices)},
+			devDoer:     &fakeDoer{statusCode: http.StatusOK, body: deviceListBody(twoDevices)},
 			wantDevices: 2,
 		},
 		{
 			name:    "401 returns authError",
-			doer:    &fakeDoer{statusCode: http.StatusUnauthorized},
+			devDoer: &fakeDoer{statusCode: http.StatusUnauthorized},
 			wantErr: "authentication failed",
 		},
 		{
 			name:    "403 returns authError",
-			doer:    &fakeDoer{statusCode: http.StatusForbidden},
+			devDoer: &fakeDoer{statusCode: http.StatusForbidden},
 			wantErr: "authentication failed",
 		},
 		{
 			name:    "500 returns generic error",
-			doer:    &fakeDoer{statusCode: http.StatusInternalServerError},
+			devDoer: &fakeDoer{statusCode: http.StatusInternalServerError},
 			wantErr: "Internal Server Error",
 		},
 		{
 			name:    "network error propagates",
-			doer:    &fakeDoer{err: errors.New("connection refused")},
+			devDoer: &fakeDoer{err: errors.New("connection refused")},
 			wantErr: "connection refused",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newPollerWithDoer(t, tt.doer)
+			p := newPollerWithDoer(t, &twoStepDoer{devDoer: tt.devDoer})
 			devices, err := p.fetch(context.Background())
 			if tt.wantErr != "" {
 				require.Error(t, err)
