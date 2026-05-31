@@ -108,18 +108,20 @@ func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.P
 
 func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.EnergyDelta, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT MAX(solar_kwh)-MIN(solar_kwh), MAX(load_kwh)-MIN(load_kwh), MAX(net_kwh)-MIN(net_kwh)
+		`SELECT COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0),
+		        COALESCE(MAX(load_kwh)-MIN(load_kwh), 0),
+		        COALESCE(MAX(net_kwh)-MIN(net_kwh), 0)
 		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
 		since.Unix(), until.Unix(),
 	)
-	var solar, load, net sql.NullFloat64
+	var solar, load, net float64
 	if err := row.Scan(&solar, &load, &net); err != nil {
 		return pvs.EnergyDelta{}, fmt.Errorf("query energy delta: %w", err)
 	}
 	return pvs.EnergyDelta{
-		SolarKWh: solar.Float64,
-		LoadKWh:  load.Float64,
-		NetKWh:   net.Float64,
+		SolarKWh: solar,
+		LoadKWh:  load,
+		NetKWh:   net,
 	}, nil
 }
 

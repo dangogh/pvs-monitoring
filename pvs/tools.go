@@ -95,8 +95,8 @@ func currentPower(ctx context.Context, store Store, staleThreshold time.Duration
 
 func parsePeriod(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
-	if strings.HasSuffix(s, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(n)
 		if err != nil {
 			return 0, fmt.Errorf("invalid period %q", s)
 		}
@@ -129,32 +129,44 @@ func parseTimeArg(s string) (time.Time, error) {
 	return t, nil
 }
 
+// parseTimeRange parses start/end strings. A date-only end (YYYY-MM-DD) is extended to end of day.
+func parseTimeRange(startStr, endStr string) (since, until time.Time, err error) {
+	since, err = parseTimeArg(startStr)
+	if err != nil {
+		return
+	}
+	if endStr != "" {
+		until, err = parseTimeArg(endStr)
+		if err != nil {
+			return
+		}
+		if len(strings.TrimSpace(endStr)) == len("2006-01-02") {
+			until = until.Add(24*time.Hour - time.Second)
+		}
+	} else {
+		until = time.Now()
+	}
+	return
+}
+
 func averagePower(ctx context.Context, store Store, args avgArgs) (*mcp.CallToolResult, any, error) {
 	var since, until time.Time
 	var label string
 
 	if args.Start != "" || args.End != "" {
-		var err error
 		if args.Start == "" {
 			return nil, nil, fmt.Errorf("start is required when end is specified")
 		}
-		since, err = parseTimeArg(args.Start)
+		var err error
+		since, until, err = parseTimeRange(args.Start, args.End)
 		if err != nil {
 			return nil, nil, err
 		}
 		if args.End != "" {
-			until, err = parseTimeArg(args.End)
-			if err != nil {
-				return nil, nil, err
-			}
-			// end date with no time means end of that day
-			if len(strings.TrimSpace(args.End)) == len("2006-01-02") {
-				until = until.Add(24*time.Hour - time.Second)
-			}
+			label = args.Start + "/" + args.End
 		} else {
-			until = time.Now()
+			label = args.Start + "/now"
 		}
-		label = args.Start + "/" + args.End
 	} else {
 		if args.Period == "" {
 			return nil, nil, fmt.Errorf("provide period (e.g. '24h') or start/end dates")
@@ -202,21 +214,9 @@ func energyDelta(ctx context.Context, store Store, startStr, endStr string) (*mc
 	if startStr == "" {
 		return nil, nil, fmt.Errorf("start is required")
 	}
-	since, err := parseTimeArg(startStr)
+	since, until, err := parseTimeRange(startStr, endStr)
 	if err != nil {
 		return nil, nil, err
-	}
-	var until time.Time
-	if endStr != "" {
-		until, err = parseTimeArg(endStr)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(strings.TrimSpace(endStr)) == len("2006-01-02") {
-			until = until.Add(24*time.Hour - time.Second)
-		}
-	} else {
-		until = time.Now()
 	}
 	delta, err := store.EnergyDelta(ctx, since, until)
 	if err != nil {

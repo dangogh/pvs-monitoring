@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```sh
 make fmt      # goimports -local github.com/dangogh -w .
-make build    # produces bin/pvs-monitor
+make build    # produces bin/pvs-monitor and bin/pvs-mcp
 make test     # go test -race -coverprofile=coverage.out ./... + total coverage
 make lint     # golangci-lint run
 make cover    # open coverage HTML in browser (runs test first)
