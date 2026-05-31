@@ -26,12 +26,14 @@ else
     git clone "$REPO" /tmp/pvs-monitoring
 fi
 
-echo "Building pvs-monitor..."
+echo "Building binaries..."
 (cd /tmp/pvs-monitoring && go build -o /tmp/pvs-monitor-bin ./cmd/pvs-monitor)
+(cd /tmp/pvs-monitoring && go build -o /tmp/pvs-api-bin     ./cmd/pvs-api)
 
-echo "Installing to $INSTALL_DIR/pvs-monitor (may prompt for sudo)..."
+echo "Installing to $INSTALL_DIR (may prompt for sudo)..."
 sudo install -m 755 /tmp/pvs-monitor-bin "$INSTALL_DIR/pvs-monitor"
-rm /tmp/pvs-monitor-bin
+sudo install -m 755 /tmp/pvs-api-bin     "$INSTALL_DIR/pvs-api"
+rm /tmp/pvs-monitor-bin /tmp/pvs-api-bin
 
 # Config
 mkdir -p "$CONFIG_DIR" "$DATA_DIR"
@@ -44,13 +46,14 @@ else
     echo "Config already exists at $CONFIG_DIR/config.yaml — not overwritten."
 fi
 
-# systemd service
+# systemd services
 if command -v systemctl >/dev/null 2>&1; then
-    UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
     LOG_FILE="$DATA_DIR/pvs-monitor.log"
+    API_LOG_FILE="$DATA_DIR/pvs-api.log"
 
-    echo "Installing systemd service..."
-    sudo tee "$UNIT_FILE" > /dev/null <<EOF
+    echo "Installing systemd services..."
+
+    sudo tee "/etc/systemd/system/pvs-monitor.service" > /dev/null <<EOF
 [Unit]
 Description=PVS6 solar monitor
 After=network-online.target
@@ -69,17 +72,37 @@ StandardError=append:$LOG_FILE
 WantedBy=multi-user.target
 EOF
 
+    sudo tee "/etc/systemd/system/pvs-api.service" > /dev/null <<EOF
+[Unit]
+Description=PVS6 solar data API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=$INSTALL_DIR/pvs-api
+Restart=on-failure
+RestartSec=10
+User=$USER
+Environment=HOME=$HOME
+StandardOutput=append:$API_LOG_FILE
+StandardError=append:$API_LOG_FILE
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     sudo systemctl daemon-reload
-    sudo systemctl enable "$SERVICE_NAME"
+    sudo systemctl enable pvs-monitor pvs-api
     echo ""
-    echo "Service installed and enabled."
-    echo "Start it with:  sudo systemctl start $SERVICE_NAME"
-    echo "Logs:           tail -f $LOG_FILE"
+    echo "Services installed and enabled."
+    echo "Start them with:  sudo systemctl start pvs-monitor pvs-api"
+    echo "Logs:             tail -f $LOG_FILE"
+    echo "                  tail -f $API_LOG_FILE"
 else
     echo ""
     echo "systemd not found — skipping service install."
-    echo "Run manually:  pvs-monitor"
+    echo "Run manually:  pvs-monitor &  pvs-api &"
 fi
 
 echo ""
-echo "Done. pvs-monitor installed to $INSTALL_DIR/pvs-monitor"
+echo "Done. Installed to $INSTALL_DIR: pvs-monitor, pvs-api"
