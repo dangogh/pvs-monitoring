@@ -41,10 +41,10 @@ type currentReading struct {
 }
 
 type dataResponse struct {
-	Range   rangeInfo      `json:"range"`
+	Range   rangeInfo       `json:"range"`
 	Current *currentReading `json:"current"`
-	Summary summaryData    `json:"summary"`
-	Series  []seriesPoint  `json:"series"`
+	Summary summaryData     `json:"summary"`
+	Series  []seriesPoint   `json:"series"`
 }
 
 type rangeInfo struct {
