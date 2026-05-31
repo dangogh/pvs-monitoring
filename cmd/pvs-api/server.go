@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/dangogh/pvs-monitoring/pvs"
@@ -41,17 +43,11 @@ type currentReading struct {
 }
 
 type dataResponse struct {
-	Range   rangeInfo       `json:"range"`
+	Since   time.Time       `json:"since"`
+	Until   time.Time       `json:"until"`
 	Current *currentReading `json:"current"`
 	Summary summaryData     `json:"summary"`
 	Series  []seriesPoint   `json:"series"`
-}
-
-type rangeInfo struct {
-	Name  string    `json:"name"`
-	Label string    `json:"label"`
-	Since time.Time `json:"since"`
-	Until time.Time `json:"until"`
 }
 
 type summaryData struct {
@@ -88,12 +84,11 @@ func (s *apiServer) handleCurrent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
-	rangeName := r.URL.Query().Get("range")
-	if rangeName == "" {
-		rangeName = "today"
+	since, until, err := parseTimeRange(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-
-	since, until, label := parseRange(rangeName, time.Now())
 	bucket := bucketSeconds(since, until)
 
 	reading, err := s.store.LatestReading(r.Context())
@@ -121,12 +116,8 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := dataResponse{
-		Range: rangeInfo{
-			Name:  rangeName,
-			Label: label,
-			Since: since,
-			Until: until,
-		},
+		Since: since,
+		Until: until,
 		Summary: summaryData{
 			SolarKWh:   energy.SolarKWh,
 			LoadKWh:    energy.LoadKWh,
@@ -149,6 +140,24 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
+// parseTimeRange reads since and until as Unix timestamps (seconds) from the query string.
+func parseTimeRange(r *http.Request) (since, until time.Time, err error) {
+	sinceStr := r.URL.Query().Get("since")
+	untilStr := r.URL.Query().Get("until")
+	if sinceStr == "" || untilStr == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("since and until are required (Unix seconds)")
+	}
+	sinceUnix, err := strconv.ParseInt(sinceStr, 10, 64)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid since: %w", err)
+	}
+	untilUnix, err := strconv.ParseInt(untilStr, 10, 64)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid until: %w", err)
+	}
+	return time.Unix(sinceUnix, 0), time.Unix(untilUnix, 0), nil
+}
+
 func toSeriesPoints(pts []pvs.SeriesPoint) []seriesPoint {
 	out := make([]seriesPoint, len(pts))
 	for i, p := range pts {
@@ -160,36 +169,6 @@ func toSeriesPoints(pts []pvs.SeriesPoint) []seriesPoint {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-func parseRange(name string, now time.Time) (since, until time.Time, label string) {
-	until = now
-	loc := now.Location()
-	y, m, d := now.Date()
-	today := time.Date(y, m, d, 0, 0, 0, 0, loc)
-
-	switch name {
-	case "today":
-		return today, until, "Today"
-	case "this_week":
-		return today.AddDate(0, 0, -int(now.Weekday())), until, "This Week"
-	case "this_month":
-		return time.Date(y, m, 1, 0, 0, 0, 0, loc), until, "This Month"
-	case "this_year":
-		return time.Date(y, 1, 1, 0, 0, 0, 0, loc), until, "This Year"
-	case "past_24h":
-		return now.Add(-24 * time.Hour), until, "Past 24 Hours"
-	case "past_7d":
-		return now.AddDate(0, 0, -7), until, "Past 7 Days"
-	case "past_30d":
-		return now.AddDate(0, 0, -30), until, "Past 30 Days"
-	case "past_year":
-		return now.AddDate(-1, 0, 0), until, "Past Year"
-	case "lifetime":
-		return time.Unix(0, 0), until, "Lifetime"
-	default:
-		return today, until, "Today"
-	}
 }
 
 func bucketSeconds(since, until time.Time) int64 {

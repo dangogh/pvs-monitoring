@@ -100,31 +100,65 @@
     .net-import .stat-value { color: var(--import); }
 
     /* ── Range selector ──────────────────────────────────────── */
-    .range-nav {
+    .range-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.5rem;
+      align-items: center;
+      gap: 0.75rem;
     }
 
-    .range-btn {
+    .range-row label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    #range-select {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      color: var(--muted);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0.4rem 0.75rem;
+    }
+
+    #range-select:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    .custom-range {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .custom-range.visible { display: flex; }
+
+    .custom-range label { color: var(--muted); font-size: 0.85rem; }
+
+    .custom-range input[type="date"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.85rem;
+      padding: 0.35rem 0.6rem;
+    }
+
+    .custom-range input[type="date"]:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    #apply-custom {
+      background: var(--solar);
+      border: none;
+      border-radius: var(--radius);
+      color: #000;
       cursor: pointer;
       font-size: 0.85rem;
-      padding: 0.4rem 0.85rem;
-      transition: background 0.15s, color 0.15s, border-color 0.15s;
-    }
-
-    .range-btn:hover { color: var(--text); border-color: var(--muted); }
-
-    .range-btn[aria-pressed="true"] {
-      background: var(--solar);
-      border-color: var(--solar);
-      color: #000;
       font-weight: 600;
+      padding: 0.4rem 0.85rem;
     }
+
+    #apply-custom:focus { outline: 2px solid var(--text); outline-offset: 2px; }
 
     /* ── Chart ───────────────────────────────────────────────── */
     #chart-container {
@@ -215,17 +249,28 @@
     </div>
   </section>
 
-  <nav class="range-nav" aria-label="Time range selector" role="toolbar">
-    <button class="range-btn" data-range="today"      aria-pressed="true">Today</button>
-    <button class="range-btn" data-range="this_week"  aria-pressed="false">This Week</button>
-    <button class="range-btn" data-range="this_month" aria-pressed="false">This Month</button>
-    <button class="range-btn" data-range="this_year"  aria-pressed="false">This Year</button>
-    <button class="range-btn" data-range="past_24h"   aria-pressed="false">Past 24h</button>
-    <button class="range-btn" data-range="past_7d"    aria-pressed="false">Past 7 Days</button>
-    <button class="range-btn" data-range="past_30d"   aria-pressed="false">Past 30 Days</button>
-    <button class="range-btn" data-range="past_year"  aria-pressed="false">Past Year</button>
-    <button class="range-btn" data-range="lifetime"   aria-pressed="false">Lifetime</button>
-  </nav>
+  <div class="range-row">
+    <label for="range-select">Time range:</label>
+    <select id="range-select" aria-label="Select time range">
+      <option value="today">Today</option>
+      <option value="this_week">This Week</option>
+      <option value="this_month">This Month</option>
+      <option value="this_year">This Year</option>
+      <option value="past_24h">Past 24 Hours</option>
+      <option value="past_7d">Past 7 Days</option>
+      <option value="past_30d">Past 30 Days</option>
+      <option value="past_year">Past Year</option>
+      <option value="lifetime">Lifetime</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div class="custom-range" id="custom-range" role="group" aria-label="Custom date range">
+      <label for="custom-since">From</label>
+      <input type="date" id="custom-since" aria-label="Start date">
+      <label for="custom-until">To</label>
+      <input type="date" id="custom-until" aria-label="End date">
+      <button id="apply-custom">Apply</button>
+    </div>
+  </div>
 
   <section aria-label="Power chart" id="chart-container">
     <div id="chart"></div>
@@ -303,7 +348,7 @@ function updateCurrent(c) {
 }
 
 // ── Summary cards ─────────────────────────────────────────────
-function updateSummary(s, label) {
+function updateSummary(s) {
   document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
   document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
   document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
@@ -423,16 +468,60 @@ function renderChart(series, rangeLabel) {
 // ── API base (resolved from /config.json served by pvs-ui) ───
 let API_BASE = '';
 
+// ── Range resolution ──────────────────────────────────────────
+// Returns {since, until} as Unix seconds and a display label.
+function resolveRange(name, customSince, customUntil) {
+  const now   = new Date();
+  const y     = now.getFullYear();
+  const m     = now.getMonth();
+  const d     = now.getDate();
+  const today = new Date(y, m, d);        // midnight local
+  const until = Math.floor(now / 1000);
+
+  switch (name) {
+    case 'today':
+      return { since: Math.floor(today / 1000), until, label: 'Today' };
+    case 'this_week': {
+      const dow = now.getDay();            // 0=Sun
+      return { since: Math.floor(new Date(y, m, d - dow) / 1000), until, label: 'This Week' };
+    }
+    case 'this_month':
+      return { since: Math.floor(new Date(y, m, 1) / 1000), until, label: 'This Month' };
+    case 'this_year':
+      return { since: Math.floor(new Date(y, 0, 1) / 1000), until, label: 'This Year' };
+    case 'past_24h':
+      return { since: until - 86400, until, label: 'Past 24 Hours' };
+    case 'past_7d':
+      return { since: until - 7 * 86400, until, label: 'Past 7 Days' };
+    case 'past_30d':
+      return { since: until - 30 * 86400, until, label: 'Past 30 Days' };
+    case 'past_year':
+      return { since: Math.floor(new Date(y - 1, m, d) / 1000), until, label: 'Past Year' };
+    case 'lifetime':
+      return { since: 0, until, label: 'Lifetime' };
+    case 'custom': {
+      const s = Math.floor(new Date(customSince) / 1000);
+      // end of the until day
+      const u = Math.floor(new Date(customUntil) / 1000) + 86399;
+      return { since: s, until: u, label: customSince + ' – ' + customUntil };
+    }
+    default:
+      return { since: Math.floor(today / 1000), until, label: 'Today' };
+  }
+}
+
 // ── Data loading ──────────────────────────────────────────────
-async function loadRange(range) {
+async function loadRange(name, customSince, customUntil) {
+  const { since, until, label } = resolveRange(name, customSince, customUntil);
   try {
-    const resp = await fetch(API_BASE + '/api/data?range=' + range);
+    const url = API_BASE + '/api/data?since=' + since + '&until=' + until;
+    const resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
 
     updateCurrent(data.current);
-    updateSummary(data.summary, data.range.label);
-    renderChart(data.series, data.range.label);
+    updateSummary(data.summary);
+    renderChart(data.series, label);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
   }
@@ -446,14 +535,35 @@ async function refreshCurrent() {
   } catch (_) { /* network hiccup — ignore */ }
 }
 
-// ── Range buttons ─────────────────────────────────────────────
-document.querySelectorAll('.range-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.range-btn').forEach(b => b.setAttribute('aria-pressed', 'false'));
-    btn.setAttribute('aria-pressed', 'true');
-    currentRange = btn.dataset.range;
+// ── Range select ──────────────────────────────────────────────
+const rangeSelect   = document.getElementById('range-select');
+const customRow     = document.getElementById('custom-range');
+const customSinceEl = document.getElementById('custom-since');
+const customUntilEl = document.getElementById('custom-until');
+const applyBtn      = document.getElementById('apply-custom');
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+rangeSelect.addEventListener('change', () => {
+  const val = rangeSelect.value;
+  if (val === 'custom') {
+    if (!customSinceEl.value) customSinceEl.value = todayStr();
+    if (!customUntilEl.value) customUntilEl.value = todayStr();
+    customRow.classList.add('visible');
+  } else {
+    customRow.classList.remove('visible');
+    currentRange = val;
     loadRange(currentRange);
-  });
+  }
+});
+
+applyBtn.addEventListener('click', () => {
+  const since = customSinceEl.value;
+  const until = customUntilEl.value;
+  if (!since || !until) return;
+  loadRange('custom', since, until);
 });
 
 // ── Init ──────────────────────────────────────────────────────
