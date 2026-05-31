@@ -20,12 +20,20 @@ type EnergyDelta struct {
 	NetKWh   float64
 }
 
+// SeriesPoint holds a time-bucketed average power reading for charting.
+type SeriesPoint struct {
+	Time    time.Time
+	SolarKW float64
+	LoadKW  float64
+}
+
 // Store persists and queries readings.
 type Store interface {
 	SaveReading(ctx context.Context, r *Reading) error
 	LatestReading(ctx context.Context) (*Reading, error)
 	AveragePower(ctx context.Context, since, until time.Time) (PowerAvg, error)
 	EnergyDelta(ctx context.Context, since, until time.Time) (EnergyDelta, error)
+	ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]SeriesPoint, error)
 	CountReadings(ctx context.Context) (int64, error)
 	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
 	LatestDevices(ctx context.Context) ([]Device, error)

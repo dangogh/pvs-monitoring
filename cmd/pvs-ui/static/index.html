@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solar Monitor</title>
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script src="https://code.highcharts.com/modules/accessibility.js"></script>
+  <script src="https://code.highcharts.com/modules/export-data.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --border:    #334155;
+      --text:      #f1f5f9;
+      --muted:     #94a3b8;
+      --solar:     #f59e0b;
+      --load:      #60a5fa;
+      --export:    #34d399;
+      --import:    #f87171;
+      --radius:    0.5rem;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+
+    #clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      padding: 1.25rem 1.5rem;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Current power cards ─────────────────────────────────── */
+    .current-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .stat-row {
+      display: flex;
+      align-items: baseline;
+      gap: 0.4rem;
+    }
+
+    .stat-value {
+      font-size: 2.25rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .stat-unit { font-size: 1rem; color: var(--muted); }
+
+    .production .stat-value { color: var(--solar); }
+    .usage      .stat-value { color: var(--load); }
+    .net-export .stat-value { color: var(--export); }
+    .net-import .stat-value { color: var(--import); }
+
+    /* ── Range selector ──────────────────────────────────────── */
+    .range-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .range-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0.4rem 0.85rem;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .range-btn:hover { color: var(--text); border-color: var(--muted); }
+
+    .range-btn[aria-pressed="true"] {
+      background: var(--solar);
+      border-color: var(--solar);
+      color: #000;
+      font-weight: 600;
+    }
+
+    /* ── Chart ───────────────────────────────────────────────── */
+    #chart-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+
+    #chart { height: 380px; }
+
+    #no-data {
+      display: none;
+      height: 380px;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    /* ── Summary cards ───────────────────────────────────────── */
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+
+    .summary-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .summary-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .summary-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .summary-unit  { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── Status bar ──────────────────────────────────────────── */
+    #status {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--muted);
+      padding-bottom: 0.75rem;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 700px) {
+      .current-stats  { grid-template-columns: 1fr; }
+      .summary-cards  { grid-template-columns: repeat(2, 1fr); }
+      .stat-value     { font-size: 1.75rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>☀ Solar Monitor</h1>
+  <time id="clock" aria-live="off"></time>
+</header>
+
+<main>
+
+  <section aria-label="Current power readings" aria-live="polite" aria-atomic="false" class="current-stats">
+    <div class="stat-card production" role="group" aria-label="Solar production">
+      <span class="stat-label">Production</span>
+      <div class="stat-row">
+        <span class="stat-value" id="solar-kw">—</span>
+        <span class="stat-unit">kW</span>
+      </div>
+    </div>
+    <div class="stat-card usage" role="group" aria-label="Home usage">
+      <span class="stat-label">Usage</span>
+      <div class="stat-row">
+        <span class="stat-value" id="load-kw">—</span>
+        <span class="stat-unit">kW</span>
+      </div>
+    </div>
+    <div class="stat-card" id="net-card" role="group" aria-label="Grid exchange">
+      <span class="stat-label" id="net-label">Net</span>
+      <div class="stat-row">
+        <span class="stat-value" id="net-kw">—</span>
+        <span class="stat-unit">kW</span>
+      </div>
+    </div>
+  </section>
+
+  <nav class="range-nav" aria-label="Time range selector" role="toolbar">
+    <button class="range-btn" data-range="today"      aria-pressed="true">Today</button>
+    <button class="range-btn" data-range="this_week"  aria-pressed="false">This Week</button>
+    <button class="range-btn" data-range="this_month" aria-pressed="false">This Month</button>
+    <button class="range-btn" data-range="this_year"  aria-pressed="false">This Year</button>
+    <button class="range-btn" data-range="past_24h"   aria-pressed="false">Past 24h</button>
+    <button class="range-btn" data-range="past_7d"    aria-pressed="false">Past 7 Days</button>
+    <button class="range-btn" data-range="past_30d"   aria-pressed="false">Past 30 Days</button>
+    <button class="range-btn" data-range="past_year"  aria-pressed="false">Past Year</button>
+    <button class="range-btn" data-range="lifetime"   aria-pressed="false">Lifetime</button>
+  </nav>
+
+  <section aria-label="Power chart" id="chart-container">
+    <div id="chart"></div>
+    <div id="no-data" role="status">No data for this period.</div>
+  </section>
+
+  <section aria-label="Period summary" class="summary-cards">
+    <div class="summary-card" role="group" aria-label="Energy produced">
+      <span class="summary-label">Produced</span>
+      <span class="summary-value" id="sum-solar">—</span>
+      <span class="summary-unit">kWh</span>
+    </div>
+    <div class="summary-card" role="group" aria-label="Energy consumed">
+      <span class="summary-label">Consumed</span>
+      <span class="summary-value" id="sum-load">—</span>
+      <span class="summary-unit">kWh</span>
+    </div>
+    <div class="summary-card" role="group" aria-label="Net energy">
+      <span class="summary-label">Net</span>
+      <span class="summary-value" id="sum-net">—</span>
+      <span class="summary-unit">kWh</span>
+    </div>
+    <div class="summary-card" role="group" aria-label="Average production">
+      <span class="summary-label">Avg Production</span>
+      <span class="summary-value" id="sum-avg">—</span>
+      <span class="summary-unit">kW</span>
+    </div>
+  </section>
+
+  <p id="status" aria-live="polite"></p>
+
+</main>
+
+<script>
+'use strict';
+
+let chart = null;
+let currentRange = 'today';
+let refreshTimer = null;
+
+// ── Clock ─────────────────────────────────────────────────────
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+// ── Formatting ────────────────────────────────────────────────
+function fmt1(n)  { return n == null ? '—' : n.toFixed(1); }
+function fmtKWh(n){ return n == null ? '—' : n.toFixed(2); }
+
+// ── Current reading ───────────────────────────────────────────
+function updateCurrent(c) {
+  if (!c) return;
+  document.getElementById('solar-kw').textContent = fmt1(c.solar_kw);
+  document.getElementById('load-kw').textContent  = fmt1(c.load_kw);
+
+  const netKW   = c.net_kw;
+  const netEl   = document.getElementById('net-kw');
+  const labelEl = document.getElementById('net-label');
+  const cardEl  = document.getElementById('net-card');
+
+  // net_kw < 0 means exporting (solar > load)
+  const exporting = netKW <= 0;
+  netEl.textContent   = fmt1(Math.abs(netKW));
+  labelEl.textContent = exporting ? 'Exporting' : 'Importing';
+  cardEl.className    = 'stat-card ' + (exporting ? 'net-export' : 'net-import');
+  cardEl.setAttribute('aria-label', exporting ? 'Exporting to grid' : 'Importing from grid');
+
+  const age = Math.round((Date.now() - new Date(c.updated_at).getTime()) / 1000);
+  document.getElementById('status').textContent =
+    'Last reading ' + (age < 5 ? 'just now' : age + 's ago');
+}
+
+// ── Summary cards ─────────────────────────────────────────────
+function updateSummary(s, label) {
+  document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
+  document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
+  document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
+
+  const netEl = document.getElementById('sum-net');
+  const net   = s.net_kwh;
+  netEl.textContent = fmtKWh(Math.abs(net));
+  // Show positive as "net export" (solar > load)
+  netEl.parentElement.querySelector('.summary-unit').textContent =
+    net < 0 ? 'kWh exported' : 'kWh imported';
+}
+
+// ── Chart ─────────────────────────────────────────────────────
+function buildChartOptions(series, rangeLabel) {
+  const solar = series.map(p => [p.t, parseFloat(p.s.toFixed(3))]);
+  const load  = series.map(p => [p.t, parseFloat(p.l.toFixed(3))]);
+
+  return {
+    chart: {
+      backgroundColor: 'transparent',
+      style: { fontFamily: 'inherit', color: '#f1f5f9' },
+      animation: false,
+    },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: {
+      itemStyle: { color: '#f1f5f9', fontWeight: 'normal' },
+      itemHoverStyle: { color: '#fff' },
+    },
+    xAxis: {
+      type: 'datetime',
+      lineColor: '#334155',
+      tickColor: '#334155',
+      labels: { style: { color: '#94a3b8' } },
+    },
+    yAxis: {
+      title: { text: 'kW', style: { color: '#94a3b8' } },
+      gridLineColor: '#334155',
+      labels: { style: { color: '#94a3b8' }, format: '{value:.1f}' },
+      min: 0,
+    },
+    tooltip: {
+      shared: true,
+      backgroundColor: '#1e293b',
+      borderColor: '#334155',
+      style: { color: '#f1f5f9' },
+      valueDecimals: 2,
+      valueSuffix: ' kW',
+    },
+    plotOptions: {
+      area: { marker: { enabled: false } },
+      line: { marker: { enabled: false } },
+    },
+    series: [
+      {
+        name: 'Production',
+        type: 'area',
+        data: solar,
+        color: '#f59e0b',
+        fillOpacity: 0.15,
+        lineWidth: 2,
+      },
+      {
+        name: 'Usage',
+        type: 'line',
+        data: load,
+        color: '#60a5fa',
+        lineWidth: 2,
+      },
+    ],
+    accessibility: {
+      enabled: true,
+      description: 'Solar production and home energy usage over time for ' + rangeLabel + '.',
+      point: {
+        valueDescriptionFormat: '{xDescription}: production {point.y:.2f} kW',
+      },
+      series: {
+        descriptionFormat: '{seriesDescription}',
+      },
+      screenReaderSection: {
+        beforeChartFormat:
+          '<h3>Solar production and usage — {rangeLabel}</h3>' +
+          '<div>Line chart with two series: solar production in amber, home usage in blue.</div>' +
+          '<div>{chartLongdesc}</div>',
+      },
+      keyboardNavigation: { enabled: true },
+    },
+    exporting: { enabled: false },
+  };
+}
+
+function renderChart(series, rangeLabel) {
+  const noData = document.getElementById('no-data');
+  const chartEl = document.getElementById('chart');
+
+  if (!series || series.length === 0) {
+    chartEl.style.display = 'none';
+    noData.style.display = 'flex';
+    if (chart) { chart.destroy(); chart = null; }
+    return;
+  }
+
+  chartEl.style.display = 'block';
+  noData.style.display = 'none';
+
+  const opts = buildChartOptions(series, rangeLabel);
+  if (chart) {
+    chart.series[0].setData(series.map(p => [p.t, parseFloat(p.s.toFixed(3))]), false);
+    chart.series[1].setData(series.map(p => [p.t, parseFloat(p.l.toFixed(3))]), false);
+    chart.setTitle(null, null, false);
+    chart.redraw();
+  } else {
+    chart = Highcharts.chart('chart', opts);
+  }
+}
+
+// ── Data loading ──────────────────────────────────────────────
+async function loadRange(range) {
+  try {
+    const resp = await fetch('/api/data?range=' + range);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+
+    updateCurrent(data.current);
+    updateSummary(data.summary, data.range.label);
+    renderChart(data.series, data.range.label);
+  } catch (e) {
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function refreshCurrent() {
+  try {
+    const resp = await fetch('/api/current');
+    if (!resp.ok) return;
+    updateCurrent(await resp.json());
+  } catch (_) { /* network hiccup — ignore */ }
+}
+
+// ── Range buttons ─────────────────────────────────────────────
+document.querySelectorAll('.range-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.range-btn').forEach(b => b.setAttribute('aria-pressed', 'false'));
+    btn.setAttribute('aria-pressed', 'true');
+    currentRange = btn.dataset.range;
+    loadRange(currentRange);
+  });
+});
+
+// ── Init ──────────────────────────────────────────────────────
+loadRange('today');
+setInterval(refreshCurrent, 5000);
+</script>
+
+</body>
+</html>

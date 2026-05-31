@@ -28,6 +28,9 @@ func (f *toolsStore) AveragePower(_ context.Context, _, _ time.Time) (PowerAvg, 
 func (f *toolsStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta, error) {
 	return EnergyDelta{}, nil
 }
+func (f *toolsStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
+	return nil, nil
+}
 func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
 func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
 func (f *toolsStore) LatestDevices(_ context.Context) ([]Device, error)            { return f.devices, nil }

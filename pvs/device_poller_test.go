@@ -397,6 +397,9 @@ func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ tim
 	f.lastDevices = devices
 	return nil
 }
+func (f *fakeDeviceStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
+	return nil, nil
+}
 func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)    { return 0, nil }
 func (f *fakeDeviceStore) LatestDevices(_ context.Context) ([]Device, error) { return nil, nil }
 func (f *fakeDeviceStore) Close() error                                      { return nil }

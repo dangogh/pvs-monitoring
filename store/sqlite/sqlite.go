@@ -47,7 +47,8 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
-	db, err := sql.Open("sqlite", path)
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
@@ -161,6 +162,29 @@ func (s *Store) LatestDevices(ctx context.Context) ([]pvs.Device, error) {
 		devices = append(devices, d)
 	}
 	return devices, rows.Err()
+}
+
+func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]pvs.SeriesPoint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT CAST(received_at / ? AS INTEGER) * ? AS bucket, AVG(solar_kw), AVG(load_kw)
+		 FROM readings WHERE received_at >= ? AND received_at <= ?
+		 GROUP BY bucket ORDER BY bucket`,
+		bucketSeconds, bucketSeconds, since.Unix(), until.Unix(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query series: %w", err)
+	}
+	defer rows.Close()
+	var pts []pvs.SeriesPoint
+	for rows.Next() {
+		var bucket int64
+		var solar, load float64
+		if err := rows.Scan(&bucket, &solar, &load); err != nil {
+			return nil, fmt.Errorf("scan series: %w", err)
+		}
+		pts = append(pts, pvs.SeriesPoint{Time: time.Unix(bucket, 0), SolarKW: solar, LoadKW: load})
+	}
+	return pts, rows.Err()
 }
 
 func (s *Store) CountReadings(ctx context.Context) (int64, error) {
