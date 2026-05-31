@@ -39,6 +39,9 @@ func newDevServer(t *testing.T, authHandler, devHandler http.HandlerFunc) *httpt
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/vars", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"values":[{"name":"/sys/telemetryws/enable","value":"1"}],"count":1}`)
+	})
 	mux.HandleFunc("/cgi-bin/dl_cgi/devices/list", devHandler)
 	return httptest.NewServer(mux)
 }
@@ -52,7 +55,9 @@ func newTestPoller(t *testing.T, srv *httptest.Server, store Store) *DevicePolle
 		Username: "user",
 		Password: "pass",
 	}
-	return NewDevicePoller(cfg, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	p := NewDevicePoller(cfg, store, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	p.varsBase = srv.URL // override to HTTP for test server
+	return p
 }
 
 var twoDevices = []map[string]any{
@@ -269,13 +274,20 @@ type twoStepDoer struct {
 
 func (d *twoStepDoer) Do(req *http.Request) (*http.Response, error) {
 	if strings.Contains(req.URL.Path, "auth") {
-		resp := &http.Response{
+		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     http.Header{"Set-Cookie": []string{"session=testsession"}},
 			Body:       io.NopCloser(strings.NewReader(`{"session":"testsession"}`)),
-		}
-		return resp, nil
+		}, nil
+	}
+	if strings.Contains(req.URL.Path, "vars") {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(`{"values":[{"name":"/sys/telemetryws/enable","value":"1"}],"count":1}`)),
+		}, nil
 	}
 	return d.devDoer.Do(req)
 }
@@ -304,6 +316,7 @@ func newPollerWithDoer(t *testing.T, doer httpDoer) *DevicePoller {
 	p := &DevicePoller{
 		url:      "http://fake/cgi-bin/dl_cgi/devices/list",
 		authURL:  "http://fake/auth",
+		varsBase: "http://fake",
 		interval: time.Hour,
 		username: "user",
 		password: "pass",

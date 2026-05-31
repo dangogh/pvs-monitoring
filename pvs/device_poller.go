@@ -30,6 +30,7 @@ type httpDoer interface {
 type DevicePoller struct {
 	url      string
 	authURL  string
+	varsBase string // HTTPS base URL for /vars calls
 	interval time.Duration
 	username string
 	password string
@@ -44,15 +45,16 @@ type DevicePoller struct {
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
 	base := strings.TrimRight(cfg.URL, "/")
+	httpsBase := strings.Replace(base, "http://", "https://", 1)
 	authURL := cfg.AuthURL
 	if authURL == "" {
 		// Auth requires HTTPS; derive from the base URL.
-		authBase := strings.Replace(base, "http://", "https://", 1)
-		authURL = authBase + "/auth?login"
+		authURL = httpsBase + "/auth?login"
 	}
 	return &DevicePoller{
 		url:      base + "/cgi-bin/dl_cgi/devices/list",
 		authURL:  authURL,
+		varsBase: httpsBase,
 		interval: cfg.Interval.Duration(),
 		username: cfg.Username,
 		password: cfg.Password,
@@ -75,6 +77,13 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 // Run polls the device list on a ticker until ctx is cancelled.
 // Returns immediately with an error on authentication failure.
 func (p *DevicePoller) Run(ctx context.Context) error {
+	// Firmware 2025.10+ disables WebSocket telemetry by default; re-enable it on startup.
+	if err := p.enableTelemetryWS(ctx); err != nil {
+		if _, ok := err.(authError); ok {
+			return err
+		}
+		p.logger.Warn("could not enable WebSocket telemetry", "err", err)
+	}
 	if err := p.poll(ctx); err != nil {
 		if _, ok := err.(authError); ok {
 			return err
@@ -116,6 +125,33 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 			p.logger.Error("store save devices failed", "err", err)
 		}
 	}
+	return nil
+}
+
+// enableTelemetryWS sets /sys/telemetryws/enable=1 via the vars API.
+// Newer PVS6 firmware disables WebSocket telemetry by default and the
+// setting is reset on reboot.
+func (p *DevicePoller) enableTelemetryWS(ctx context.Context) error {
+	cookie, err := p.login(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		p.varsBase+"/vars?set=/sys/telemetryws/enable=1", nil)
+	if err != nil {
+		return fmt.Errorf("build telemetry request: %w", err)
+	}
+	req.AddCookie(cookie)
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("enable telemetry: %w", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("enable telemetry returned %s", resp.Status)
+	}
+	p.logger.Debug("WebSocket telemetry enabled")
 	return nil
 }
 
