@@ -129,69 +129,74 @@ func TestSaveAndLatestDevices(t *testing.T) {
 	inv := pvs.Device{
 		Serial:     "INV001",
 		DeviceType: "Inverter",
-		Type:       "MI",
-		Model:      "SPR-X22",
-		State:      "working",
-		StateDescr: "Working",
-		Raw:        []byte(`{"SERIAL":"INV001","DEVICE_TYPE":"Inverter","p_3phsum_kw":8.5}`),
+		Raw: []byte(`{"SERIAL":"INV001","DEVICE_TYPE":"Inverter","STATE":"working","STATEDESCR":"Working",` +
+			`"p_3phsum_kw":"8.5","ltea_3phsum_kwh":"1000.0","vln_3phavg_v":"240.0","i_3phsum_a":"1.0",` +
+			`"p_mppt1_kw":"8.5","v_mppt1_v":"48.0","i_mppt1_a":"1.0","t_htsnk_degc":"45","freq_hz":"60.0"}`),
 	}
 	mtr := pvs.Device{
 		Serial:     "MTR001",
 		DeviceType: "Power Meter",
-		Raw:        []byte(`{"SERIAL":"MTR001","DEVICE_TYPE":"Power Meter"}`),
+		Raw: []byte(`{"SERIAL":"MTR001","DEVICE_TYPE":"Power Meter","STATE":"working","STATEDESCR":"Working",` +
+			`"subtype":"GROSS_PRODUCTION_SITE","net_ltea_3phsum_kwh":"5000.0","p_3phsum_kw":"2.0",` +
+			`"q_3phsum_kvar":"0.1","s_3phsum_kva":"2.1","tot_pf_rto":"0.95","freq_hz":"60.0","i_a":"1.0","v12_v":"240.0"}`),
 	}
 
 	t.Run("returns empty slice when no devices saved", func(t *testing.T) {
 		s := openTestStore(t)
-		devices, err := s.LatestDevices(ctx)
+		inverters, err := s.LatestInverters(ctx)
 		require.NoError(t, err)
-		assert.Empty(t, devices)
+		assert.Empty(t, inverters)
 	})
 
-	t.Run("returns devices from most recent poll", func(t *testing.T) {
+	t.Run("saves and retrieves inverter", func(t *testing.T) {
 		s := openTestStore(t)
 
-		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv, mtr}, now))
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now))
 
-		got, err := s.LatestDevices(ctx)
+		got, err := s.LatestInverters(ctx)
 		require.NoError(t, err)
-		require.Len(t, got, 2)
+		require.Len(t, got, 1)
+		assert.Equal(t, "INV001", got[0].Serial)
+		assert.InDelta(t, 8.5, got[0].PowerKW, 1e-9)
+		assert.InDelta(t, 1000.0, got[0].LifetimeKWh, 1e-9)
+	})
 
-		serials := []string{got[0].Serial, got[1].Serial}
-		assert.ElementsMatch(t, []string{"INV001", "MTR001"}, serials)
+	t.Run("saves and retrieves meter", func(t *testing.T) {
+		s := openTestStore(t)
+
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{mtr}, now))
+
+		got, err := s.LatestMeters(ctx)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "MTR001", got[0].Serial)
+		assert.InDelta(t, 5000.0, got[0].LifetimeKWh, 1e-9)
 	})
 
 	t.Run("latest poll supersedes earlier poll", func(t *testing.T) {
 		s := openTestStore(t)
 
 		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now))
-		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{mtr}, now.Add(time.Minute)))
+		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now.Add(time.Minute)))
 
-		got, err := s.LatestDevices(ctx)
+		got, err := s.LatestInverters(ctx)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
-		assert.Equal(t, "MTR001", got[0].Serial)
+		assert.Equal(t, now.Add(time.Minute).Unix(), got[0].ReceivedAt.Unix())
 	})
 
-	t.Run("raw payload round-trips correctly", func(t *testing.T) {
-		s := openTestStore(t)
-
-		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv}, now))
-
-		got, err := s.LatestDevices(ctx)
-		require.NoError(t, err)
-		require.Len(t, got, 1)
-		assert.JSONEq(t, string(inv.Raw), string(got[0].Raw))
-	})
-
-	t.Run("saves all devices in a transaction", func(t *testing.T) {
+	t.Run("saves multiple device types in one transaction", func(t *testing.T) {
 		s := openTestStore(t)
 
 		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{inv, mtr}, now))
 
-		var count int
-		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_readings`).Scan(&count))
-		assert.Equal(t, 2, count)
+		inverters, err := s.LatestInverters(ctx)
+		require.NoError(t, err)
+		assert.Len(t, inverters, 1)
+
+		meters, err := s.LatestMeters(ctx)
+		require.NoError(t, err)
+		assert.Len(t, meters, 1)
 	})
 }
 

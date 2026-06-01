@@ -294,7 +294,9 @@ func (f *fakeStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) (
 }
 func (f *fakeStore) CountReadings(_ context.Context) (int64, error)               { return f.count, nil }
 func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
-func (f *fakeStore) LatestDevices(_ context.Context) ([]Device, error)            { return nil, nil }
+func (f *fakeStore) LatestInverters(_ context.Context) ([]InverterDevice, error)  { return nil, nil }
+func (f *fakeStore) LatestPVS(_ context.Context) ([]PVSDevice, error)             { return nil, nil }
+func (f *fakeStore) LatestMeters(_ context.Context) ([]MeterDevice, error)        { return nil, nil }
 func (f *fakeStore) Close() error                                                 { return nil }
 
 func TestRunLoopCountsReadings(t *testing.T) {

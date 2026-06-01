@@ -36,6 +36,8 @@ type Store interface {
 	ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]SeriesPoint, error)
 	CountReadings(ctx context.Context) (int64, error)
 	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
-	LatestDevices(ctx context.Context) ([]Device, error)
+	LatestInverters(ctx context.Context) ([]InverterDevice, error)
+	LatestPVS(ctx context.Context) ([]PVSDevice, error)
+	LatestMeters(ctx context.Context) ([]MeterDevice, error)
 	Close() error
 }

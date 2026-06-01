@@ -11,6 +11,7 @@ import (
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
+
 type apiServer struct {
 	store  pvs.Store
 	logger *slog.Logger
@@ -20,6 +21,7 @@ func (s *apiServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
+	mux.HandleFunc("GET /api/devices", s.handleDevices)
 	return corsMiddleware(mux)
 }
 
@@ -164,6 +166,15 @@ func toSeriesPoints(pts []pvs.SeriesPoint) []seriesPoint {
 		out[i] = seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: p.SolarKW, LoadKW: p.LoadKW}
 	}
 	return out
+}
+
+func (s *apiServer) handleDevices(w http.ResponseWriter, r *http.Request) {
+	inverters, err := s.store.LatestInverters(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, inverters)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -3,10 +3,112 @@ package pvs
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"time"
 )
 
-// Device represents a single entry from the PVS6 device list.
-// Raw holds the full JSON payload for fields specific to each device type.
+// InverterDevice holds a single per-inverter reading.
+type InverterDevice struct {
+	Serial       string
+	State        string
+	StateDescr   string
+	ReceivedAt   time.Time
+	PowerKW      float64
+	LifetimeKWh  float64
+	VoltageV     float64
+	CurrentA     float64
+	PowerMPPT1KW float64
+	VoltageMPPT1V float64
+	CurrentMPPT1A float64
+	TempC        float64
+	FreqHz       float64
+}
+
+// PVSDevice holds a single PVS supervisor reading.
+type PVSDevice struct {
+	Serial      string
+	State       string
+	StateDescr  string
+	ReceivedAt  time.Time
+	ErrCount    int64
+	CommErr     int64
+	UptimeSec   int64
+	CPULoad     float64
+	MemUsed     int64
+	FlashAvail  int64
+}
+
+// MeterDevice holds a single power meter reading.
+type MeterDevice struct {
+	Serial        string
+	State         string
+	StateDescr    string
+	Subtype       string
+	ReceivedAt    time.Time
+	LifetimeKWh   float64
+	PowerKW       float64
+	ReactivePowerKVAR float64
+	ApparentPowerKVA  float64
+	PowerFactor   float64
+	FreqHz        float64
+	CurrentA      float64
+	VoltageV      float64
+}
+
+// rawInverter is used for JSON parsing of inverter payloads.
+type rawInverter struct {
+	Serial      string `json:"SERIAL"`
+	State       string `json:"STATE"`
+	StateDescr  string `json:"STATEDESCR"`
+	PowerKW     string `json:"p_3phsum_kw"`
+	LifetimeKWh string `json:"ltea_3phsum_kwh"`
+	VoltageV    string `json:"vln_3phavg_v"`
+	CurrentA    string `json:"i_3phsum_a"`
+	PowerMPPT1  string `json:"p_mppt1_kw"`
+	VoltageMPPT1 string `json:"v_mppt1_v"`
+	CurrentMPPT1 string `json:"i_mppt1_a"`
+	TempC       string `json:"t_htsnk_degc"`
+	FreqHz      string `json:"freq_hz"`
+}
+
+type rawPVS struct {
+	Serial     string `json:"SERIAL"`
+	State      string `json:"STATE"`
+	StateDescr string `json:"STATEDESCR"`
+	ErrCount   string `json:"dl_err_count"`
+	CommErr    string `json:"dl_comm_err"`
+	Uptime     string `json:"dl_uptime"`
+	CPULoad    string `json:"dl_cpu_load"`
+	MemUsed    string `json:"dl_mem_used"`
+	FlashAvail string `json:"dl_flash_avail"`
+}
+
+type rawMeter struct {
+	Serial        string `json:"SERIAL"`
+	State         string `json:"STATE"`
+	StateDescr    string `json:"STATEDESCR"`
+	Subtype       string `json:"subtype"`
+	LifetimeKWh   string `json:"net_ltea_3phsum_kwh"`
+	PowerKW       string `json:"p_3phsum_kw"`
+	ReactivePower string `json:"q_3phsum_kvar"`
+	ApparentPower string `json:"s_3phsum_kva"`
+	PowerFactor   string `json:"tot_pf_rto"`
+	FreqHz        string `json:"freq_hz"`
+	CurrentA      string `json:"i_a"`
+	VoltageV      string `json:"v12_v"`
+}
+
+func parseFloat(s string) float64 {
+	f, _ := strconv.ParseFloat(s, 64)
+	return f
+}
+
+func parseInt(s string) int64 {
+	n, _ := strconv.ParseInt(s, 10, 64)
+	return n
+}
+
+// Device is the raw device list entry from the PVS6, used during parsing before typed dispatch.
 type Device struct {
 	Serial     string          `json:"SERIAL"`
 	DeviceType string          `json:"DEVICE_TYPE"`
@@ -37,4 +139,70 @@ func parseDeviceList(data []byte) ([]Device, error) {
 		devices = append(devices, d)
 	}
 	return devices, nil
+}
+
+// ToInverter parses a Device's Raw payload into an InverterDevice.
+func (d Device) ToInverter(receivedAt time.Time) (InverterDevice, error) {
+	var r rawInverter
+	if err := json.Unmarshal(d.Raw, &r); err != nil {
+		return InverterDevice{}, err
+	}
+	return InverterDevice{
+		Serial:        r.Serial,
+		State:         r.State,
+		StateDescr:    r.StateDescr,
+		ReceivedAt:    receivedAt,
+		PowerKW:       parseFloat(r.PowerKW),
+		LifetimeKWh:   parseFloat(r.LifetimeKWh),
+		VoltageV:      parseFloat(r.VoltageV),
+		CurrentA:      parseFloat(r.CurrentA),
+		PowerMPPT1KW:  parseFloat(r.PowerMPPT1),
+		VoltageMPPT1V: parseFloat(r.VoltageMPPT1),
+		CurrentMPPT1A: parseFloat(r.CurrentMPPT1),
+		TempC:         parseFloat(r.TempC),
+		FreqHz:        parseFloat(r.FreqHz),
+	}, nil
+}
+
+// ToPVS parses a Device's Raw payload into a PVSDevice.
+func (d Device) ToPVS(receivedAt time.Time) (PVSDevice, error) {
+	var r rawPVS
+	if err := json.Unmarshal(d.Raw, &r); err != nil {
+		return PVSDevice{}, err
+	}
+	return PVSDevice{
+		Serial:     r.Serial,
+		State:      r.State,
+		StateDescr: r.StateDescr,
+		ReceivedAt: receivedAt,
+		ErrCount:   parseInt(r.ErrCount),
+		CommErr:    parseInt(r.CommErr),
+		UptimeSec:  parseInt(r.Uptime),
+		CPULoad:    parseFloat(r.CPULoad),
+		MemUsed:    parseInt(r.MemUsed),
+		FlashAvail: parseInt(r.FlashAvail),
+	}, nil
+}
+
+// ToMeter parses a Device's Raw payload into a MeterDevice.
+func (d Device) ToMeter(receivedAt time.Time) (MeterDevice, error) {
+	var r rawMeter
+	if err := json.Unmarshal(d.Raw, &r); err != nil {
+		return MeterDevice{}, err
+	}
+	return MeterDevice{
+		Serial:            r.Serial,
+		State:             r.State,
+		StateDescr:        r.StateDescr,
+		Subtype:           r.Subtype,
+		ReceivedAt:        receivedAt,
+		LifetimeKWh:       parseFloat(r.LifetimeKWh),
+		PowerKW:           parseFloat(r.PowerKW),
+		ReactivePowerKVAR: parseFloat(r.ReactivePower),
+		ApparentPowerKVA:  parseFloat(r.ApparentPower),
+		PowerFactor:       parseFloat(r.PowerFactor),
+		FreqHz:            parseFloat(r.FreqHz),
+		CurrentA:          parseFloat(r.CurrentA),
+		VoltageV:          parseFloat(r.VoltageV),
+	}, nil
 }

@@ -13,7 +13,6 @@ import (
 type toolsStore struct {
 	reading    *Reading
 	readingErr error
-	devices    []Device
 	avg        PowerAvg
 	avgErr     error
 }
@@ -33,7 +32,9 @@ func (f *toolsStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) 
 }
 func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
 func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
-func (f *toolsStore) LatestDevices(_ context.Context) ([]Device, error)            { return f.devices, nil }
+func (f *toolsStore) LatestInverters(_ context.Context) ([]InverterDevice, error)  { return nil, nil }
+func (f *toolsStore) LatestPVS(_ context.Context) ([]PVSDevice, error)             { return nil, nil }
+func (f *toolsStore) LatestMeters(_ context.Context) ([]MeterDevice, error)        { return nil, nil }
 func (f *toolsStore) Close() error                                                 { return nil }
 
 func freshReading(r *Reading) *Reading {

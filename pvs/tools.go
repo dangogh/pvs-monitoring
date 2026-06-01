@@ -237,20 +237,33 @@ func energyDelta(ctx context.Context, store Store, startStr, endStr string) (*mc
 	}, nil, nil
 }
 
+type deviceListResult struct {
+	Inverters []InverterDevice `json:"inverters"`
+	PVS       []PVSDevice      `json:"pvs"`
+	Meters    []MeterDevice    `json:"meters"`
+}
+
 func deviceList(ctx context.Context, store Store) (*mcp.CallToolResult, any, error) {
-	devices, err := store.LatestDevices(ctx)
+	inverters, err := store.LatestInverters(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(devices) == 0 {
+	pvsList, err := store.LatestPVS(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	meters, err := store.LatestMeters(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(inverters)+len(pvsList)+len(meters) == 0 {
 		return nil, nil, fmt.Errorf("no device list available yet")
 	}
-	// Return the raw payloads as a JSON array so all device-specific fields are visible.
-	raws := make([]json.RawMessage, len(devices))
-	for i, d := range devices {
-		raws[i] = d.Raw
-	}
-	data, err := json.Marshal(raws)
+	data, err := json.Marshal(deviceListResult{
+		Inverters: inverters,
+		PVS:       pvsList,
+		Meters:    meters,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
