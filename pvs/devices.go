@@ -9,19 +9,19 @@ import (
 
 // InverterDevice holds a single per-inverter reading.
 type InverterDevice struct {
-	Serial        string
-	State         string
-	StateDescr    string
-	ReceivedAt    time.Time
-	PowerKW       float64
-	LifetimeKWh   float64
-	VoltageV      float64
-	CurrentA      float64
-	PowerMPPT1KW  float64
-	VoltageMPPT1V float64
-	CurrentMPPT1A float64
-	TempC         float64
-	FreqHz        float64
+	Serial        string    `json:"serial"`
+	State         string    `json:"state"`
+	StateDescr    string    `json:"state_descr"`
+	ReceivedAt    time.Time `json:"received_at"`
+	PowerKW       float64   `json:"power_kw"`
+	LifetimeKWh   float64   `json:"lifetime_kwh"`
+	VoltageV      float64   `json:"voltage_v"`
+	CurrentA      float64   `json:"current_a"`
+	PowerMPPT1KW  float64   `json:"power_mppt1_kw"`
+	VoltageMPPT1V float64   `json:"voltage_mppt1_v"`
+	CurrentMPPT1A float64   `json:"current_mppt1_a"`
+	TempC         float64   `json:"temp_c"`
+	FreqHz        float64   `json:"freq_hz"`
 }
 
 // AuxDevice holds a raw reading for non-inverter devices (PVS, Power Meter).

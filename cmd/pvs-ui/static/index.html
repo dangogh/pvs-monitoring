@@ -55,6 +55,36 @@
       margin: 0 auto;
     }
 
+    /* ── Tabs ────────────────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      gap: 0.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.95rem;
+      padding: 0.5rem 1rem;
+      margin-bottom: -1px;
+    }
+
+    .tab-btn[aria-selected="true"] {
+      border-bottom-color: var(--solar);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .tab-btn:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    .tab-panel { display: none; flex-direction: column; gap: 1.25rem; }
+    .tab-panel.active { display: flex; }
+
     /* ── Current power cards ─────────────────────────────────── */
     .current-stats {
       display: grid;
@@ -200,6 +230,54 @@
     .summary-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .summary-unit  { font-size: 0.85rem; color: var(--muted); }
 
+    /* ── Panels table ────────────────────────────────────────── */
+    #panels-container {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: auto;
+    }
+
+    #panels-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #panels-table th, #panels-table td {
+      padding: 0.5rem 0.75rem;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    #panels-table th:first-child, #panels-table td:first-child { text-align: left; }
+
+    #panels-table thead th {
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      user-select: none;
+      position: sticky;
+      top: 0;
+    }
+
+    #panels-table thead th:hover { color: var(--text); }
+
+    #panels-table thead th[aria-sort="ascending"]::after  { content: ' ▲'; }
+    #panels-table thead th[aria-sort="descending"]::after { content: ' ▼'; }
+
+    #panels-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    #panels-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
+
+    .state-working { color: var(--export); }
+    .state-error   { color: var(--import); }
+    .state-other   { color: var(--muted); }
+
     /* ── Status bar ──────────────────────────────────────────── */
     #status {
       text-align: center;
@@ -225,80 +303,109 @@
 
 <main>
 
-  <section aria-label="Current power readings" aria-live="polite" aria-atomic="false" class="current-stats">
-    <div class="stat-card production" role="group" aria-label="Solar production">
-      <span class="stat-label">Production</span>
-      <div class="stat-row">
-        <span class="stat-value" id="solar-kw">—</span>
-        <span class="stat-unit">kW</span>
-      </div>
-    </div>
-    <div class="stat-card usage" role="group" aria-label="Home usage">
-      <span class="stat-label">Usage</span>
-      <div class="stat-row">
-        <span class="stat-value" id="load-kw">—</span>
-        <span class="stat-unit">kW</span>
-      </div>
-    </div>
-    <div class="stat-card" id="net-card" role="group" aria-label="Grid exchange">
-      <span class="stat-label" id="net-label">Net</span>
-      <div class="stat-row">
-        <span class="stat-value" id="net-kw">—</span>
-        <span class="stat-unit">kW</span>
-      </div>
-    </div>
-  </section>
-
-  <div class="range-row">
-    <label for="range-select">Time range:</label>
-    <select id="range-select" aria-label="Select time range">
-      <option value="today">Today</option>
-      <option value="this_week">This Week</option>
-      <option value="this_month">This Month</option>
-      <option value="this_year">This Year</option>
-      <option value="past_24h">Past 24 Hours</option>
-      <option value="past_7d">Past 7 Days</option>
-      <option value="past_30d">Past 30 Days</option>
-      <option value="past_year">Past Year</option>
-      <option value="lifetime">Lifetime</option>
-      <option value="custom">Custom…</option>
-    </select>
-    <div class="custom-range" id="custom-range" role="group" aria-label="Custom date range">
-      <label for="custom-since">From</label>
-      <input type="date" id="custom-since" aria-label="Start date">
-      <label for="custom-until">To</label>
-      <input type="date" id="custom-until" aria-label="End date">
-      <button id="apply-custom">Apply</button>
-    </div>
+  <div class="tab-bar" role="tablist" aria-label="Views">
+    <button class="tab-btn" role="tab" aria-selected="true"  aria-controls="tab-overview" id="btn-overview">Overview</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panels"   id="btn-panels">Panels</button>
   </div>
 
-  <section aria-label="Power chart" id="chart-container">
-    <div id="chart"></div>
-    <div id="no-data" role="status">No data for this period.</div>
-  </section>
+  <!-- Overview tab -->
+  <div id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="btn-overview">
 
-  <section aria-label="Period summary" class="summary-cards">
-    <div class="summary-card" role="group" aria-label="Energy produced">
-      <span class="summary-label">Produced</span>
-      <span class="summary-value" id="sum-solar">—</span>
-      <span class="summary-unit">kWh</span>
+    <section aria-label="Current power readings" aria-live="polite" aria-atomic="false" class="current-stats">
+      <div class="stat-card production" role="group" aria-label="Solar production">
+        <span class="stat-label">Production</span>
+        <div class="stat-row">
+          <span class="stat-value" id="solar-kw">—</span>
+          <span class="stat-unit">kW</span>
+        </div>
+      </div>
+      <div class="stat-card usage" role="group" aria-label="Home usage">
+        <span class="stat-label">Usage</span>
+        <div class="stat-row">
+          <span class="stat-value" id="load-kw">—</span>
+          <span class="stat-unit">kW</span>
+        </div>
+      </div>
+      <div class="stat-card" id="net-card" role="group" aria-label="Grid exchange">
+        <span class="stat-label" id="net-label">Net</span>
+        <div class="stat-row">
+          <span class="stat-value" id="net-kw">—</span>
+          <span class="stat-unit">kW</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="range-row">
+      <label for="range-select">Time range:</label>
+      <select id="range-select" aria-label="Select time range">
+        <option value="today">Today</option>
+        <option value="this_week">This Week</option>
+        <option value="this_month">This Month</option>
+        <option value="this_year">This Year</option>
+        <option value="past_24h">Past 24 Hours</option>
+        <option value="past_7d">Past 7 Days</option>
+        <option value="past_30d">Past 30 Days</option>
+        <option value="past_year">Past Year</option>
+        <option value="lifetime">Lifetime</option>
+        <option value="custom">Custom…</option>
+      </select>
+      <div class="custom-range" id="custom-range" role="group" aria-label="Custom date range">
+        <label for="custom-since">From</label>
+        <input type="date" id="custom-since" aria-label="Start date">
+        <label for="custom-until">To</label>
+        <input type="date" id="custom-until" aria-label="End date">
+        <button id="apply-custom">Apply</button>
+      </div>
     </div>
-    <div class="summary-card" role="group" aria-label="Energy consumed">
-      <span class="summary-label">Consumed</span>
-      <span class="summary-value" id="sum-load">—</span>
-      <span class="summary-unit">kWh</span>
+
+    <section aria-label="Power chart" id="chart-container">
+      <div id="chart"></div>
+      <div id="no-data" role="status">No data for this period.</div>
+    </section>
+
+    <section aria-label="Period summary" class="summary-cards">
+      <div class="summary-card" role="group" aria-label="Energy produced">
+        <span class="summary-label">Produced</span>
+        <span class="summary-value" id="sum-solar">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Energy consumed">
+        <span class="summary-label">Consumed</span>
+        <span class="summary-value" id="sum-load">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Net energy">
+        <span class="summary-label">Net</span>
+        <span class="summary-value" id="sum-net">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Average production">
+        <span class="summary-label">Avg Production</span>
+        <span class="summary-value" id="sum-avg">—</span>
+        <span class="summary-unit">kW</span>
+      </div>
+    </section>
+
+  </div><!-- /tab-overview -->
+
+  <!-- Panels tab -->
+  <div id="tab-panels" class="tab-panel" role="tabpanel" aria-labelledby="btn-panels">
+    <div id="panels-container">
+      <table id="panels-table" aria-label="Panel inverter readings">
+        <thead>
+          <tr>
+            <th scope="col" data-col="serial"       aria-sort="ascending">Serial</th>
+            <th scope="col" data-col="state"                              >State</th>
+            <th scope="col" data-col="power_kw"                          >Power (kW)</th>
+            <th scope="col" data-col="lifetime_kwh"                      >Lifetime (kWh)</th>
+            <th scope="col" data-col="voltage_v"                         >Voltage (V)</th>
+            <th scope="col" data-col="temp_c"                            >Temp (°C)</th>
+          </tr>
+        </thead>
+        <tbody id="panels-tbody"></tbody>
+      </table>
     </div>
-    <div class="summary-card" role="group" aria-label="Net energy">
-      <span class="summary-label">Net</span>
-      <span class="summary-value" id="sum-net">—</span>
-      <span class="summary-unit">kWh</span>
-    </div>
-    <div class="summary-card" role="group" aria-label="Average production">
-      <span class="summary-label">Avg Production</span>
-      <span class="summary-value" id="sum-avg">—</span>
-      <span class="summary-unit">kW</span>
-    </div>
-  </section>
+  </div><!-- /tab-panels -->
 
   <p id="status" aria-live="polite"></p>
 
@@ -309,7 +416,6 @@
 
 let chart = null;
 let currentRange = 'today';
-let refreshTimer = null;
 
 // ── Clock ─────────────────────────────────────────────────────
 function tickClock() {
@@ -322,7 +428,23 @@ tickClock();
 
 // ── Formatting ────────────────────────────────────────────────
 function fmt1(n)  { return n == null ? '—' : n.toFixed(1); }
+function fmt2(n)  { return n == null ? '—' : n.toFixed(2); }
 function fmtKWh(n){ return n == null ? '—' : n.toFixed(2); }
+
+// ── Tabs ──────────────────────────────────────────────────────
+const tabBtns   = document.querySelectorAll('.tab-btn');
+const tabPanels = document.querySelectorAll('.tab-panel');
+
+function switchTab(id) {
+  tabBtns.forEach(b => {
+    const active = b.getAttribute('aria-controls') === id;
+    b.setAttribute('aria-selected', active);
+  });
+  tabPanels.forEach(p => p.classList.toggle('active', p.id === id));
+  if (id === 'tab-panels') loadPanels();
+}
+
+tabBtns.forEach(btn => btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls'))));
 
 // ── Current reading ───────────────────────────────────────────
 function updateCurrent(c) {
@@ -335,7 +457,6 @@ function updateCurrent(c) {
   const labelEl = document.getElementById('net-label');
   const cardEl  = document.getElementById('net-card');
 
-  // net_kw < 0 means exporting (solar > load)
   const exporting = netKW <= 0;
   netEl.textContent   = fmt1(Math.abs(netKW));
   labelEl.textContent = exporting ? 'Exporting' : 'Importing';
@@ -344,11 +465,11 @@ function updateCurrent(c) {
 
   const age = Math.round((Date.now() - new Date(c.updated_at).getTime()) / 1000);
   let ageStr;
-  if      (age < 5)    ageStr = 'just now';
-  else if (age < 60)   ageStr = age + 's ago';
-  else if (age < 3600) ageStr = Math.floor(age / 60) + 'm ago';
-  else if (age < 86400)ageStr = Math.floor(age / 3600) + 'h ago';
-  else                 ageStr = Math.floor(age / 86400) + 'd ago';
+  if      (age < 5)     ageStr = 'just now';
+  else if (age < 60)    ageStr = age + 's ago';
+  else if (age < 3600)  ageStr = Math.floor(age / 60) + 'm ago';
+  else if (age < 86400) ageStr = Math.floor(age / 3600) + 'h ago';
+  else                  ageStr = Math.floor(age / 86400) + 'd ago';
   document.getElementById('status').textContent = 'Last reading ' + ageStr;
 }
 
@@ -361,7 +482,6 @@ function updateSummary(s) {
   const netEl = document.getElementById('sum-net');
   const net   = s.net_kwh;
   netEl.textContent = fmtKWh(Math.abs(net));
-  // Show positive as "net export" (solar > load)
   netEl.parentElement.querySelector('.summary-unit').textContent =
     net < 0 ? 'kWh exported' : 'kWh imported';
 }
@@ -427,12 +547,8 @@ function buildChartOptions(series, rangeLabel) {
     accessibility: {
       enabled: true,
       description: 'Solar production and home energy usage over time for ' + rangeLabel + '.',
-      point: {
-        valueDescriptionFormat: '{xDescription}: production {point.y:.2f} kW',
-      },
-      series: {
-        descriptionFormat: '{seriesDescription}',
-      },
+      point: { valueDescriptionFormat: '{xDescription}: production {point.y:.2f} kW' },
+      series: { descriptionFormat: '{seriesDescription}' },
       screenReaderSection: {
         beforeChartFormat:
           '<h3>Solar production and usage — {rangeLabel}</h3>' +
@@ -446,18 +562,18 @@ function buildChartOptions(series, rangeLabel) {
 }
 
 function renderChart(series, rangeLabel) {
-  const noData = document.getElementById('no-data');
+  const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
   if (!series || series.length === 0) {
     chartEl.style.display = 'none';
-    noData.style.display = 'flex';
+    noData.style.display  = 'flex';
     if (chart) { chart.destroy(); chart = null; }
     return;
   }
 
   chartEl.style.display = 'block';
-  noData.style.display = 'none';
+  noData.style.display  = 'none';
 
   const opts = buildChartOptions(series, rangeLabel);
   if (chart) {
@@ -470,24 +586,23 @@ function renderChart(series, rangeLabel) {
   }
 }
 
-// ── API base (resolved from /config.json served by pvs-ui) ───
+// ── API base ──────────────────────────────────────────────────
 let API_BASE = '';
 
 // ── Range resolution ──────────────────────────────────────────
-// Returns {since, until} as Unix seconds and a display label.
 function resolveRange(name, customSince, customUntil) {
   const now   = new Date();
   const y     = now.getFullYear();
   const m     = now.getMonth();
   const d     = now.getDate();
-  const today = new Date(y, m, d);        // midnight local
+  const today = new Date(y, m, d);
   const until = Math.floor(now / 1000);
 
   switch (name) {
     case 'today':
       return { since: Math.floor(today / 1000), until, label: 'Today' };
     case 'this_week': {
-      const dow = now.getDay();            // 0=Sun
+      const dow = now.getDay();
       return { since: Math.floor(new Date(y, m, d - dow) / 1000), until, label: 'This Week' };
     }
     case 'this_month':
@@ -506,7 +621,6 @@ function resolveRange(name, customSince, customUntil) {
       return { since: 0, until, label: 'Lifetime' };
     case 'custom': {
       const s = Math.floor(new Date(customSince) / 1000);
-      // end of the until day
       const u = Math.floor(new Date(customUntil) / 1000) + 86399;
       return { since: s, until: u, label: customSince + ' – ' + customUntil };
     }
@@ -515,7 +629,7 @@ function resolveRange(name, customSince, customUntil) {
   }
 }
 
-// ── Data loading ──────────────────────────────────────────────
+// ── Overview data loading ─────────────────────────────────────
 async function loadRange(name, customSince, customUntil) {
   const { since, until, label } = resolveRange(name, customSince, customUntil);
   try {
@@ -537,8 +651,73 @@ async function refreshCurrent() {
     const resp = await fetch(API_BASE + '/api/current');
     if (!resp.ok) return;
     updateCurrent(await resp.json());
-  } catch (_) { /* network hiccup — ignore */ }
+  } catch (_) {}
 }
+
+// ── Panels table ──────────────────────────────────────────────
+let panelsData   = [];
+let sortCol      = 'serial';
+let sortAsc      = true;
+
+async function loadPanels() {
+  try {
+    const resp = await fetch(API_BASE + '/api/devices');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    panelsData = await resp.json();
+    renderPanels();
+  } catch (e) {
+    document.getElementById('panels-tbody').innerHTML =
+      '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+function renderPanels() {
+  const cols = {
+    serial:       d => d.serial,
+    state:        d => d.state_descr,
+    power_kw:     d => d.power_kw,
+    lifetime_kwh: d => d.lifetime_kwh,
+    voltage_v:    d => d.voltage_v,
+    temp_c:       d => d.temp_c,
+  };
+
+  const sorted = [...panelsData].sort((a, b) => {
+    const av = cols[sortCol](a);
+    const bv = cols[sortCol](b);
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    return sortAsc ? cmp : -cmp;
+  });
+
+  const tbody = document.getElementById('panels-tbody');
+  tbody.innerHTML = sorted.map(d => {
+    const stateClass = d.state === 'working' ? 'state-working'
+                     : d.state === 'error'   ? 'state-error'
+                     : 'state-other';
+    return `<tr>
+      <td>${d.serial}</td>
+      <td class="${stateClass}">${d.state_descr}</td>
+      <td>${fmt2(d.power_kw)}</td>
+      <td>${fmt2(d.lifetime_kwh)}</td>
+      <td>${fmt1(d.voltage_v)}</td>
+      <td>${fmt1(d.temp_c)}</td>
+    </tr>`;
+  }).join('');
+}
+
+document.querySelectorAll('#panels-table thead th').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.col;
+    if (sortCol === col) {
+      sortAsc = !sortAsc;
+    } else {
+      sortCol = col;
+      sortAsc = true;
+    }
+    document.querySelectorAll('#panels-table thead th').forEach(h => h.removeAttribute('aria-sort'));
+    th.setAttribute('aria-sort', sortAsc ? 'ascending' : 'descending');
+    renderPanels();
+  });
+});
 
 // ── Range select ──────────────────────────────────────────────
 const rangeSelect   = document.getElementById('range-select');
@@ -547,9 +726,7 @@ const customSinceEl = document.getElementById('custom-since');
 const customUntilEl = document.getElementById('custom-until');
 const applyBtn      = document.getElementById('apply-custom');
 
-function todayStr() {
-  return new Date().toISOString().slice(0, 10);
-}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
 
 rangeSelect.addEventListener('change', () => {
   const val = rangeSelect.value;
@@ -576,7 +753,7 @@ applyBtn.addEventListener('click', () => {
   try {
     const cfg = await fetch('/config.json').then(r => r.json());
     API_BASE = (cfg.api_base || '').replace(/\/$/, '');
-  } catch (_) { /* fall back to same origin */ }
+  } catch (_) {}
   loadRange('today');
   setInterval(refreshCurrent, 5000);
 })();
