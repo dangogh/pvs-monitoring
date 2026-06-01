@@ -400,8 +400,7 @@ func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ tim
 func (f *fakeDeviceStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
 	return nil, nil
 }
-func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)           { return 0, nil }
+func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)              { return 0, nil }
 func (f *fakeDeviceStore) LatestInverters(_ context.Context) ([]InverterDevice, error) { return nil, nil }
-func (f *fakeDeviceStore) LatestPVS(_ context.Context) ([]PVSDevice, error)            { return nil, nil }
-func (f *fakeDeviceStore) LatestMeters(_ context.Context) ([]MeterDevice, error)       { return nil, nil }
+func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)     { return nil, nil }
 func (f *fakeDeviceStore) Close() error                                                { return nil }

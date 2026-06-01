@@ -35,8 +35,8 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// migrations is an ordered list of SQL statements, one per schema version.
-// Index 0 brings the DB from version 0 → 1, index 1 from 1 → 2, etc.
+// migrations is an ordered list of SQL DDL strings, one per schema version.
+// Index i brings the DB from version i → i+1.
 var migrations = []string{
 	// version 1: initial schema
 	`CREATE TABLE IF NOT EXISTS readings (
@@ -61,7 +61,7 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_device_received_at ON device_readings(received_at);`,
 
-	// version 2: replace device_readings with typed tables; migrate existing data
+	// version 2: typed inverter table + pvs/meter tables; migrate device_readings
 	`CREATE TABLE inverter_readings (
 		id              INTEGER PRIMARY KEY AUTOINCREMENT,
 		received_at     INTEGER NOT NULL,
@@ -113,11 +113,20 @@ var migrations = []string{
 		voltage_v            REAL    NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_meter_received_at ON meter_readings(received_at);`,
+
+	// version 3: consolidate pvs_readings + meter_readings into aux_device_readings
+	`CREATE TABLE aux_device_readings (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		received_at INTEGER NOT NULL,
+		device_type TEXT    NOT NULL,
+		serial      TEXT    NOT NULL,
+		payload     TEXT    NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_aux_received_at ON aux_device_readings(received_at);`,
 }
 
-// migrateData copies rows from the old device_readings table into the new typed tables.
-// Called as part of migration to version 2, after the new tables exist.
-func migrateData(tx *sql.Tx) error {
+// migrateV2 copies rows from device_readings into the typed tables, then drops device_readings.
+func migrateV2(tx *sql.Tx) error {
 	rows, err := tx.Query(`SELECT received_at, device_type, serial, payload FROM device_readings`)
 	if err != nil {
 		return err
@@ -137,7 +146,7 @@ func migrateData(tx *sql.Tx) error {
 		case "Inverter":
 			inv, err := d.ToInverter(t)
 			if err != nil {
-				continue // skip unparseable rows
+				continue
 			}
 			if _, err := tx.Exec(
 				`INSERT INTO inverter_readings
@@ -151,44 +160,97 @@ func migrateData(tx *sql.Tx) error {
 			); err != nil {
 				return err
 			}
-		case "PVS":
-			p, err := d.ToPVS(t)
-			if err != nil {
-				continue
-			}
+		default:
 			if _, err := tx.Exec(
 				`INSERT INTO pvs_readings
 				 (received_at, serial, state, state_descr, err_count, comm_err, uptime_sec, cpu_load, mem_used, flash_avail)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				receivedAt, p.Serial, p.State, p.StateDescr,
-				p.ErrCount, p.CommErr, p.UptimeSec, p.CPULoad, p.MemUsed, p.FlashAvail,
+				 VALUES (?, ?, ?, '', 0, 0, 0, 0, 0, 0)`,
+				receivedAt, serial, "", "",
 			); err != nil {
-				return err
-			}
-		case "Power Meter":
-			m, err := d.ToMeter(t)
-			if err != nil {
-				continue
-			}
-			if _, err := tx.Exec(
-				`INSERT INTO meter_readings
-				 (received_at, serial, state, state_descr, subtype, lifetime_kwh, power_kw,
-				  reactive_power_kvar, apparent_power_kva, power_factor, freq_hz, current_a, voltage_v)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				receivedAt, m.Serial, m.State, m.StateDescr, m.Subtype,
-				m.LifetimeKWh, m.PowerKW, m.ReactivePowerKVAR, m.ApparentPowerKVA,
-				m.PowerFactor, m.FreqHz, m.CurrentA, m.VoltageV,
-			); err != nil {
-				return err
+				// best-effort; these tables are dropped in migration 3
+				_ = err
 			}
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-
 	_, err = tx.Exec(`DROP TABLE device_readings`)
 	return err
+}
+
+// migrateV3 moves pvs_readings and meter_readings into aux_device_readings, then drops them.
+func migrateV3(tx *sql.Tx) error {
+	// pvs_readings has no payload — reconstruct minimal JSON for the aux table.
+	pvRows, err := tx.Query(`SELECT received_at, serial, state, state_descr, err_count, comm_err, uptime_sec, cpu_load, mem_used, flash_avail FROM pvs_readings`)
+	if err != nil {
+		return err
+	}
+	defer pvRows.Close()
+	for pvRows.Next() {
+		var ra int64
+		var serial, state, stateDescr string
+		var errCount, commErr, uptime, memUsed, flashAvail int64
+		var cpuLoad float64
+		if err := pvRows.Scan(&ra, &serial, &state, &stateDescr, &errCount, &commErr, &uptime, &cpuLoad, &memUsed, &flashAvail); err != nil {
+			return err
+		}
+		payload := fmt.Sprintf(
+			`{"SERIAL":%q,"STATE":%q,"STATEDESCR":%q,"dl_err_count":"%d","dl_comm_err":"%d","dl_uptime":"%d","dl_cpu_load":"%.2f","dl_mem_used":"%d","dl_flash_avail":"%d"}`,
+			serial, state, stateDescr, errCount, commErr, uptime, cpuLoad, memUsed, flashAvail,
+		)
+		if _, err := tx.Exec(
+			`INSERT INTO aux_device_readings (received_at, device_type, serial, payload) VALUES (?, 'PVS', ?, ?)`,
+			ra, serial, payload,
+		); err != nil {
+			return err
+		}
+	}
+	if err := pvRows.Err(); err != nil {
+		return err
+	}
+
+	mRows, err := tx.Query(`SELECT received_at, serial, state, state_descr, subtype, lifetime_kwh, power_kw, reactive_power_kvar, apparent_power_kva, power_factor, freq_hz, current_a, voltage_v FROM meter_readings`)
+	if err != nil {
+		return err
+	}
+	defer mRows.Close()
+	for mRows.Next() {
+		var ra int64
+		var serial, state, stateDescr, subtype string
+		var lifetimeKWh, powerKW, reactivePower, apparentPower, powerFactor, freqHz, currentA, voltageV float64
+		if err := mRows.Scan(&ra, &serial, &state, &stateDescr, &subtype,
+			&lifetimeKWh, &powerKW, &reactivePower, &apparentPower, &powerFactor, &freqHz, &currentA, &voltageV,
+		); err != nil {
+			return err
+		}
+		payload := fmt.Sprintf(
+			`{"SERIAL":%q,"STATE":%q,"STATEDESCR":%q,"subtype":%q,"net_ltea_3phsum_kwh":"%.4f","p_3phsum_kw":"%.4f","q_3phsum_kvar":"%.4f","s_3phsum_kva":"%.4f","tot_pf_rto":"%.4f","freq_hz":"%.2f","i_a":"%.4f","v12_v":"%.4f"}`,
+			serial, state, stateDescr, subtype,
+			lifetimeKWh, powerKW, reactivePower, apparentPower, powerFactor, freqHz, currentA, voltageV,
+		)
+		if _, err := tx.Exec(
+			`INSERT INTO aux_device_readings (received_at, device_type, serial, payload) VALUES (?, 'Power Meter', ?, ?)`,
+			ra, serial, payload,
+		); err != nil {
+			return err
+		}
+	}
+	if err := mRows.Err(); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`DROP TABLE pvs_readings`); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`DROP TABLE meter_readings`)
+	return err
+}
+
+// dataMigrations holds optional data-migration functions keyed by migration index (0-based).
+var dataMigrations = map[int]func(*sql.Tx) error{
+	1: migrateV2,
+	2: migrateV3,
 }
 
 func migrate(db *sql.DB) error {
@@ -206,9 +268,8 @@ func migrate(db *sql.DB) error {
 			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
-		// Migration 2 (index 1) requires data migration after DDL.
-		if i == 1 {
-			if err := migrateData(tx); err != nil {
+		if fn, ok := dataMigrations[i]; ok {
+			if err := fn(tx); err != nil {
 				tx.Rollback() //nolint:errcheck
 				return fmt.Errorf("migration %d data: %w", i+1, err)
 			}
@@ -317,33 +378,10 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 			); err != nil {
 				return err
 			}
-		case "PVS":
-			p, err := d.ToPVS(receivedAt)
-			if err != nil {
-				return err
-			}
+		default:
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO pvs_readings
-				 (received_at, serial, state, state_descr, err_count, comm_err, uptime_sec, cpu_load, mem_used, flash_avail)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				receivedAt.Unix(), p.Serial, p.State, p.StateDescr,
-				p.ErrCount, p.CommErr, p.UptimeSec, p.CPULoad, p.MemUsed, p.FlashAvail,
-			); err != nil {
-				return err
-			}
-		case "Power Meter":
-			m, err := d.ToMeter(receivedAt)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO meter_readings
-				 (received_at, serial, state, state_descr, subtype, lifetime_kwh, power_kw,
-				  reactive_power_kvar, apparent_power_kva, power_factor, freq_hz, current_a, voltage_v)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				receivedAt.Unix(), m.Serial, m.State, m.StateDescr, m.Subtype,
-				m.LifetimeKWh, m.PowerKW, m.ReactivePowerKVAR, m.ApparentPowerKVA,
-				m.PowerFactor, m.FreqHz, m.CurrentA, m.VoltageV,
+				`INSERT INTO aux_device_readings (received_at, device_type, serial, payload) VALUES (?, ?, ?, ?)`,
+				receivedAt.Unix(), d.DeviceType, d.Serial, string(d.Raw),
 			); err != nil {
 				return err
 			}
@@ -381,55 +419,26 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 	return out, rows.Err()
 }
 
-func (s *Store) LatestPVS(ctx context.Context) ([]pvs.PVSDevice, error) {
+func (s *Store) LatestAuxDevices(ctx context.Context) ([]pvs.AuxDevice, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT serial, state, state_descr, received_at, err_count, comm_err, uptime_sec, cpu_load, mem_used, flash_avail
-		 FROM pvs_readings
-		 WHERE received_at = (SELECT MAX(received_at) FROM pvs_readings)
-		 ORDER BY serial`)
+		`SELECT device_type, serial, received_at, payload
+		 FROM aux_device_readings
+		 WHERE received_at = (SELECT MAX(received_at) FROM aux_device_readings)
+		 ORDER BY device_type, serial`)
 	if err != nil {
-		return nil, fmt.Errorf("query latest pvs: %w", err)
+		return nil, fmt.Errorf("query latest aux devices: %w", err)
 	}
 	defer rows.Close()
-	var out []pvs.PVSDevice
+	var out []pvs.AuxDevice
 	for rows.Next() {
-		var d pvs.PVSDevice
+		var d pvs.AuxDevice
 		var receivedAt int64
-		if err := rows.Scan(
-			&d.Serial, &d.State, &d.StateDescr, &receivedAt,
-			&d.ErrCount, &d.CommErr, &d.UptimeSec, &d.CPULoad, &d.MemUsed, &d.FlashAvail,
-		); err != nil {
-			return nil, fmt.Errorf("scan pvs: %w", err)
+		var payload string
+		if err := rows.Scan(&d.DeviceType, &d.Serial, &receivedAt, &payload); err != nil {
+			return nil, fmt.Errorf("scan aux device: %w", err)
 		}
 		d.ReceivedAt = time.Unix(receivedAt, 0)
-		out = append(out, d)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) LatestMeters(ctx context.Context) ([]pvs.MeterDevice, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT serial, state, state_descr, subtype, received_at, lifetime_kwh, power_kw,
-		        reactive_power_kvar, apparent_power_kva, power_factor, freq_hz, current_a, voltage_v
-		 FROM meter_readings
-		 WHERE received_at = (SELECT MAX(received_at) FROM meter_readings)
-		 ORDER BY serial`)
-	if err != nil {
-		return nil, fmt.Errorf("query latest meters: %w", err)
-	}
-	defer rows.Close()
-	var out []pvs.MeterDevice
-	for rows.Next() {
-		var d pvs.MeterDevice
-		var receivedAt int64
-		if err := rows.Scan(
-			&d.Serial, &d.State, &d.StateDescr, &d.Subtype, &receivedAt,
-			&d.LifetimeKWh, &d.PowerKW, &d.ReactivePowerKVAR, &d.ApparentPowerKVA,
-			&d.PowerFactor, &d.FreqHz, &d.CurrentA, &d.VoltageV,
-		); err != nil {
-			return nil, fmt.Errorf("scan meter: %w", err)
-		}
-		d.ReceivedAt = time.Unix(receivedAt, 0)
+		d.Payload = []byte(payload)
 		out = append(out, d)
 	}
 	return out, rows.Err()

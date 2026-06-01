@@ -161,16 +161,17 @@ func TestSaveAndLatestDevices(t *testing.T) {
 		assert.InDelta(t, 1000.0, got[0].LifetimeKWh, 1e-9)
 	})
 
-	t.Run("saves and retrieves meter", func(t *testing.T) {
+	t.Run("saves and retrieves meter as aux device", func(t *testing.T) {
 		s := openTestStore(t)
 
 		require.NoError(t, s.SaveDevices(ctx, []pvs.Device{mtr}, now))
 
-		got, err := s.LatestMeters(ctx)
+		got, err := s.LatestAuxDevices(ctx)
 		require.NoError(t, err)
 		require.Len(t, got, 1)
 		assert.Equal(t, "MTR001", got[0].Serial)
-		assert.InDelta(t, 5000.0, got[0].LifetimeKWh, 1e-9)
+		assert.Equal(t, "Power Meter", got[0].DeviceType)
+		assert.NotEmpty(t, got[0].Payload)
 	})
 
 	t.Run("latest poll supersedes earlier poll", func(t *testing.T) {
@@ -194,9 +195,10 @@ func TestSaveAndLatestDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, inverters, 1)
 
-		meters, err := s.LatestMeters(ctx)
+		aux, err := s.LatestAuxDevices(ctx)
 		require.NoError(t, err)
-		assert.Len(t, meters, 1)
+		assert.Len(t, aux, 1)
+		assert.Equal(t, "Power Meter", aux[0].DeviceType)
 	})
 }
 

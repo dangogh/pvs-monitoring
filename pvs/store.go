@@ -37,7 +37,6 @@ type Store interface {
 	CountReadings(ctx context.Context) (int64, error)
 	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
 	LatestInverters(ctx context.Context) ([]InverterDevice, error)
-	LatestPVS(ctx context.Context) ([]PVSDevice, error)
-	LatestMeters(ctx context.Context) ([]MeterDevice, error)
+	LatestAuxDevices(ctx context.Context) ([]AuxDevice, error)
 	Close() error
 }
