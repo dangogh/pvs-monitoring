@@ -31,7 +31,7 @@ func run(args []string, ctx context.Context) error {
 	var listenAddr, apiBase, tlsCert, tlsKey string
 	var verbose bool
 	fs.StringVar(&listenAddr, "addr", ":8080", "HTTP listen address")
-	fs.StringVar(&apiBase, "api", "https://localhost:8081", "pvs-api base URL")
+	fs.StringVar(&apiBase, "api", "http://localhost:8081", "pvs-api base URL")
 	fs.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (optional)")
 	fs.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (optional)")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging")
