@@ -16,7 +16,7 @@ func TestDefault(t *testing.T) {
 	assert.Equal(t, time.Second, cfg.ReconnectInitialInterval.Duration())
 	assert.Equal(t, 30*time.Second, cfg.ReconnectMaxInterval.Duration())
 	assert.Equal(t, 5*time.Second, cfg.StaleThreshold.Duration())
-	assert.Equal(t, "http://sunpowerconsole.com", cfg.DeviceList.URL)
+	assert.Equal(t, "http://192.168.191.155", cfg.DeviceList.URL)
 	assert.Equal(t, 60*time.Second, cfg.DeviceList.Interval.Duration())
 	assert.Equal(t, "ssm_owner", cfg.DeviceList.Username)
 	assert.Empty(t, cfg.DeviceList.Password)

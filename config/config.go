@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,6 +26,16 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 const defaultAddr = "ws://192.168.191.155:9002"
+
+// deviceListURLFromAddr derives the device list HTTP URL from the WebSocket address.
+// For example: "ws://192.168.191.155:9002" → "http://192.168.191.155"
+func deviceListURLFromAddr(wsAddr string) string {
+	u, err := url.Parse(wsAddr)
+	if err != nil {
+		return "http://192.168.191.155" // fallback to default
+	}
+	return fmt.Sprintf("http://%s", u.Hostname())
+}
 
 // DeviceListConfig holds configuration for the HTTP device-list poller.
 type DeviceListConfig struct {
@@ -59,7 +70,7 @@ func Default() Config {
 		ReconnectMaxInterval:     Duration(30 * time.Second),
 		StaleThreshold:           Duration(5 * time.Second),
 		DeviceList: DeviceListConfig{
-			URL:      "http://sunpowerconsole.com",
+			URL:      deviceListURLFromAddr(defaultAddr),
 			Interval: Duration(60 * time.Second),
 			Username: "ssm_owner",
 		},
