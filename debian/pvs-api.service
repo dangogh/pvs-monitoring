@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/pvs-api -tls-cert /var/lib/pvs-monitor/server.crt -tls-key /var/lib/pvs-monitor/server.key
+ExecStart=/usr/bin/pvs-api -tls-cert /var/lib/pvs-monitor/server.crt -tls-key /var/lib/pvs-monitor/server.key
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

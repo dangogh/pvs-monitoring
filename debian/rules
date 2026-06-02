@@ -12,9 +12,9 @@ override_dh_auto_build:
 
 override_dh_auto_install:
 	# Install binaries
-	install -D -m 755 bin/pvs-monitor $(DESTDIR)/usr/local/bin/pvs-monitor
-	install -D -m 755 bin/pvs-api $(DESTDIR)/usr/local/bin/pvs-api
-	install -D -m 755 bin/pvs-ui $(DESTDIR)/usr/local/bin/pvs-ui
+	install -D -m 755 bin/pvs-monitor $(DESTDIR)/usr/bin/pvs-monitor
+	install -D -m 755 bin/pvs-api $(DESTDIR)/usr/bin/pvs-api
+	install -D -m 755 bin/pvs-ui $(DESTDIR)/usr/bin/pvs-ui
 	
 	# Install systemd services
 	install -D -m 644 debian/pvs-monitor.service $(DESTDIR)/etc/systemd/system/pvs-monitor.service
