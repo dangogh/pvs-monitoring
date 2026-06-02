@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="https://github.com/dangogh/pvs-monitoring"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/pvs-monitor"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/pvs-monitor"
 SERVICE_NAME="pvs-monitor"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || { echo "error: $1 is required but not installed"; exit 1; }
 }
 
-need git
 need go
 need openssl
 
@@ -22,24 +21,15 @@ echo "Using $GO_VERSION"
 BACKUP_DEST="${HOME}/backups-pvs"
 if [[ -f "$CONFIG_DIR/config.yaml" || -f "${DATA_DIR}/readings.db" ]]; then
     echo "Backing up existing installation to $BACKUP_DEST..."
-    bash /tmp/pvs-monitoring/backup.sh -d "$BACKUP_DEST" -s "$DATA_DIR" -c "$CONFIG_DIR" || \
+    bash "$REPO_DIR/backup.sh" -d "$BACKUP_DEST" -s "$DATA_DIR" -c "$CONFIG_DIR" || \
         echo "Warning: backup failed — continuing anyway"
     echo ""
 fi
 
-# Clone or update
-if [[ -d /tmp/pvs-monitoring ]]; then
-    echo "Updating existing clone..."
-    git -C /tmp/pvs-monitoring pull --ff-only
-else
-    echo "Cloning $REPO..."
-    git clone "$REPO" /tmp/pvs-monitoring
-fi
-
 echo "Building binaries..."
-(cd /tmp/pvs-monitoring && go build -o /tmp/pvs-monitor-bin ./cmd/pvs-monitor)
-(cd /tmp/pvs-monitoring && go build -o /tmp/pvs-api-bin     ./cmd/pvs-api)
-(cd /tmp/pvs-monitoring && go build -o /tmp/pvs-ui-bin      ./cmd/pvs-ui)
+(cd "$REPO_DIR" && go build -o /tmp/pvs-monitor-bin ./cmd/pvs-monitor)
+(cd "$REPO_DIR" && go build -o /tmp/pvs-api-bin     ./cmd/pvs-api)
+(cd "$REPO_DIR" && go build -o /tmp/pvs-ui-bin      ./cmd/pvs-ui)
 
 echo "Installing to $INSTALL_DIR (may prompt for sudo)..."
 sudo install -m 755 /tmp/pvs-monitor-bin "$INSTALL_DIR/pvs-monitor"
@@ -50,7 +40,7 @@ rm /tmp/pvs-monitor-bin /tmp/pvs-api-bin /tmp/pvs-ui-bin
 # Config
 mkdir -p "$CONFIG_DIR" "$DATA_DIR"
 if [[ ! -f "$CONFIG_DIR/config.yaml" ]]; then
-    cp /tmp/pvs-monitoring/config.example.yaml "$CONFIG_DIR/config.yaml"
+    cp "$REPO_DIR/config.example.yaml" "$CONFIG_DIR/config.yaml"
     echo ""
     echo "Config created at $CONFIG_DIR/config.yaml"
     echo "Edit it to set your PVS6 address and password before starting the service."
