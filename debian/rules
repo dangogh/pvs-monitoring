@@ -3,7 +3,7 @@
 DESTDIR ?= debian/pvs-monitoring
 
 %:
-	dh $@ --without usrlocal
+	dh $@ --without usrlocal --without dwz
 
 override_dh_auto_build:
 	go build -o bin/pvs-monitor ./cmd/pvs-monitor
