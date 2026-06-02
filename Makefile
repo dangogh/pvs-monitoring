@@ -1,6 +1,6 @@
 BIN_DIR := bin
 
-.PHONY: build test lint cover fmt
+.PHONY: build test lint cover fmt deb
 
 fmt:
 	goimports -local github.com/dangogh -w .
@@ -20,3 +20,9 @@ lint:
 
 cover: test
 	go tool cover -html=coverage.out
+
+deb:
+	dpkg-buildpackage -us -uc -b
+	mkdir -p dist
+	mv ../pvs-monitoring_*.deb dist/ || true
+

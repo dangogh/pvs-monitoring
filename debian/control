@@ -1,0 +1,11 @@
+Package: pvs-monitoring
+Version: 1.0.0
+Architecture: arm64
+Maintainer: dangogh <dank@example.com>
+Homepage: https://github.com/dangogh/pvs-monitoring
+Description: PVS6 solar monitor with MCP integration
+ Monitors a SunPower PVS6 solar gateway via WebSocket,
+ persists power readings to SQLite, and exposes data
+ via MCP tools for use with Claude Desktop.
+ .
+ Includes systemd services for pvs-monitor, pvs-api, and pvs-ui.

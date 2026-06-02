@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "configure" ]; then
+    # Create data and config directories if they don't exist
+    mkdir -p /var/lib/pvs-monitor
+    mkdir -p /etc/pvs-monitor
+    
+    # If config.yaml doesn't exist, copy from example
+    if [ ! -f /etc/pvs-monitor/config.yaml ]; then
+        cp /etc/pvs-monitor/config.yaml.example /etc/pvs-monitor/config.yaml
+        echo "Created /etc/pvs-monitor/config.yaml — edit it to set your PVS6 address and credentials."
+    fi
+    
+    # Generate self-signed TLS certificate if it doesn't exist
+    if [ ! -f /var/lib/pvs-monitor/server.crt ] || [ ! -f /var/lib/pvs-monitor/server.key ]; then
+        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+            -days 3650 -nodes \
+            -keyout /var/lib/pvs-monitor/server.key -out /var/lib/pvs-monitor/server.crt \
+            -subj "/CN=$(hostname)" 2>/dev/null || true
+        chmod 600 /var/lib/pvs-monitor/server.key
+    fi
+    
+    # Enable services (but don't start them yet — user must configure first)
+    systemctl daemon-reload || true
+    systemctl enable pvs-monitor pvs-api pvs-ui 2>/dev/null || true
+fi
+
+exit 0

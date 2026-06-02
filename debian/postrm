@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Stop services if running
+    systemctl stop pvs-monitor pvs-api pvs-ui 2>/dev/null || true
+    systemctl disable pvs-monitor pvs-api pvs-ui 2>/dev/null || true
+    systemctl daemon-reload || true
+    
+    # Clean up empty directories if purging
+    if [ "$1" = "purge" ]; then
+        rm -rf /var/lib/pvs-monitor /etc/pvs-monitor
+    fi
+fi
+
+exit 0

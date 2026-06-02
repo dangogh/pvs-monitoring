@@ -1,0 +1,13 @@
+[Unit]
+Description=PVS6 solar dashboard UI
+After=pvs-api.service
+
+[Service]
+ExecStart=/usr/local/bin/pvs-ui -api https://localhost:8081
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
