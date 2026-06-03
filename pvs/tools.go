@@ -140,7 +140,7 @@ func parseTimeRange(startStr, endStr string) (since, until time.Time, err error)
 		if err != nil {
 			return
 		}
-		if len(strings.TrimSpace(endStr)) == len("2006-01-02") {
+		if _, err2 := time.ParseInLocation("2006-01-02", strings.TrimSpace(endStr), time.Local); err2 == nil {
 			until = until.Add(24*time.Hour - time.Second)
 		}
 	} else {
