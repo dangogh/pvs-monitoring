@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -146,6 +147,7 @@ func migrateV2(tx *sql.Tx) error {
 		case "Inverter":
 			inv, err := d.ToInverter(t)
 			if err != nil {
+				slog.Default().Warn("migrateV2: skipping unparseable inverter row", "serial", serial, "err", err)
 				continue
 			}
 			if _, err := tx.Exec(
@@ -165,10 +167,9 @@ func migrateV2(tx *sql.Tx) error {
 				`INSERT INTO pvs_readings
 				 (received_at, serial, state, state_descr, err_count, comm_err, uptime_sec, cpu_load, mem_used, flash_avail)
 				 VALUES (?, ?, ?, '', 0, 0, 0, 0, 0, 0)`,
-				receivedAt, serial, "", "",
+				receivedAt, serial, "",
 			); err != nil {
-				// best-effort; these tables are dropped in migration 3
-				_ = err
+				return err
 			}
 		}
 	}
