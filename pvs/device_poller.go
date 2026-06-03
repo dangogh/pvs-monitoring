@@ -146,7 +146,7 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 	}
 	if p.store != nil {
 		if err := p.store.SaveDevices(ctx, devices, now); err != nil {
-			p.logger.Error("store save devices failed", "err", err)
+			return fmt.Errorf("save devices: %w", err)
 		}
 	}
 	return nil
