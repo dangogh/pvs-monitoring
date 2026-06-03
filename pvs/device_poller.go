@@ -74,9 +74,10 @@ func newPVSTLSConfig(fingerprint string) *tls.Config {
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
 	base := strings.TrimRight(cfg.URL, "/")
+	httpsBase := strings.Replace(base, "http://", "https://", 1)
 	authURL := cfg.AuthURL
 	if authURL == "" {
-		authURL = base + "/auth?login"
+		authURL = httpsBase + "/auth?login"
 	}
 	if cfg.TLSFingerprint == "" {
 		logger.Warn("TLS certificate verification is disabled; set pvs_tls_fingerprint in config to pin the PVS6 certificate")
