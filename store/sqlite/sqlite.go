@@ -316,6 +316,9 @@ func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
 }
 
 func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.PowerAvg, error) {
+	if !until.IsZero() && since.After(until) {
+		return pvs.PowerAvg{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*)
 		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
@@ -335,6 +338,9 @@ func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.P
 }
 
 func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.EnergyDelta, error) {
+	if !until.IsZero() && since.After(until) {
+		return pvs.EnergyDelta{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
+	}
 	row := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0),
 		        COALESCE(MAX(load_kwh)-MIN(load_kwh), 0),
@@ -446,6 +452,9 @@ func (s *Store) LatestAuxDevices(ctx context.Context) ([]pvs.AuxDevice, error) {
 }
 
 func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]pvs.SeriesPoint, error) {
+	if !until.IsZero() && since.After(until) {
+		return nil, fmt.Errorf("since (%s) is after until (%s)", since, until)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT CAST(received_at / ? AS INTEGER) * ? AS bucket, AVG(solar_kw), AVG(load_kw)
 		 FROM readings WHERE received_at >= ? AND received_at <= ?
