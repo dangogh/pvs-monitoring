@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 
 DESTDIR ?= debian/pvs-monitoring
+export PATH := $(HOME)/go/bin:$(PATH)
 
 %:
 	dh $@ --without usrlocal --without dwz
