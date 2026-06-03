@@ -78,6 +78,9 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 	if authURL == "" {
 		authURL = base + "/auth?login"
 	}
+	if cfg.TLSFingerprint == "" {
+		logger.Warn("TLS certificate verification is disabled; set pvs_tls_fingerprint in config to pin the PVS6 certificate")
+	}
 	return &DevicePoller{
 		url:      base + "/cgi-bin/dl_cgi/devices/list",
 		authURL:  authURL,
