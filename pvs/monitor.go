@@ -161,7 +161,9 @@ func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger
 // Run connects and streams readings, reconnecting with exponential backoff
 // until ctx is cancelled.
 func (m *Monitor) Run(ctx context.Context) error {
-	go m.runStats(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() { m.runStats(ctx) })
+	defer wg.Wait()
 	backoff := m.reconnectInitial
 	for {
 		m.logger.Debug("connecting to PVS6", "addr", m.addr)
