@@ -32,7 +32,7 @@ type httpDoer interface {
 type DevicePoller struct {
 	url      string
 	authURL  string
-	varsBase string // HTTPS base URL for /vars calls
+	varsBase string // base URL for /vars calls
 	interval time.Duration
 	username string
 	password string
@@ -74,10 +74,9 @@ func newPVSTLSConfig(fingerprint string) *tls.Config {
 // NewDevicePoller creates a DevicePoller from config. store may be nil.
 func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logger) *DevicePoller {
 	base := strings.TrimRight(cfg.URL, "/")
-	httpsBase := strings.Replace(base, "http://", "https://", 1)
 	authURL := cfg.AuthURL
 	if authURL == "" {
-		authURL = httpsBase + "/auth?login"
+		authURL = base + "/auth?login"
 	}
 	if cfg.TLSFingerprint == "" {
 		logger.Warn("TLS certificate verification is disabled; set pvs_tls_fingerprint in config to pin the PVS6 certificate")
