@@ -50,6 +50,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	slog.Info("config loaded", "path", cfgPath)
 
 	// Precedence: flag > env > config file > default.
 	if addr != "" {
