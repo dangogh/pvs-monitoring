@@ -164,18 +164,20 @@ func (p *DevicePoller) enableTelemetryWS(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		p.varsBase+"/vars?set=/sys/telemetryws/enable=1", nil)
+	telemetryURL := p.varsBase + "/vars?set=/sys/telemetryws/enable=1"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, telemetryURL, nil)
 	if err != nil {
 		return fmt.Errorf("build telemetry request: %w", err)
 	}
 	req.AddCookie(cookie)
+	p.logger.Debug("telemetry request", "url", telemetryURL)
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("enable telemetry: %w", err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
+	p.logger.Debug("telemetry response", "status", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("enable telemetry returned %s", resp.Status)
 	}
@@ -190,6 +192,7 @@ func (p *DevicePoller) login(ctx context.Context) (*http.Cookie, error) {
 		return nil, fmt.Errorf("build auth request: %w", err)
 	}
 	req.SetBasicAuth(p.username, p.password)
+	p.logger.Debug("auth request", "url", p.authURL)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
@@ -197,6 +200,7 @@ func (p *DevicePoller) login(ctx context.Context) (*http.Cookie, error) {
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
+	p.logger.Debug("auth response", "status", resp.StatusCode)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, authError{status: resp.Status}
@@ -224,12 +228,14 @@ func (p *DevicePoller) fetch(ctx context.Context) ([]Device, error) {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.AddCookie(cookie)
+	p.logger.Debug("device list request", "url", p.url)
 
 	resp, err := p.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch device list: %w", err)
 	}
 	defer resp.Body.Close()
+	p.logger.Debug("device list response", "status", resp.StatusCode)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return nil, authError{status: resp.Status}
