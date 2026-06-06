@@ -143,10 +143,16 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 	p.mu.Lock()
 	p.current = devices
 	p.mu.Unlock()
-	p.logger.Debug("device list updated", "count", len(devices))
+	stateCounts := make(map[string]int)
 	for _, d := range devices {
+		stateCounts[d.State]++
 		p.logger.Debug("device", "type", d.DeviceType, "serial", d.Serial, "model", d.Model, "state", d.State, "descr", d.StateDescr)
 	}
+	args := []any{"count", len(devices)}
+	for state, n := range stateCounts {
+		args = append(args, state, n)
+	}
+	p.logger.Info("device list updated", args...)
 	if p.store != nil {
 		if err := p.store.SaveDevices(ctx, devices, now); err != nil {
 			return fmt.Errorf("save devices: %w", err)
