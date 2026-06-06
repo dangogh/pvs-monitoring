@@ -27,7 +27,7 @@ deb:
 	$(eval GIT_SHA := $(shell git rev-parse --short HEAD))
 	$(eval DIRTY := $(shell git diff --quiet && git diff --cached --quiet || echo .dirty))
 	$(eval VERSION := $(if $(filter main,$(GIT_BRANCH)),1.0.$(MAIN_COUNT)$(if $(DIRTY),~dirty),1.0.$(MAIN_COUNT)~$(GIT_SHA)$(DIRTY)))
-	dch --newversion $(VERSION) --distribution unstable --force-distribution "git $(VERSION)"
+	dch $(if $(filter main,$(GIT_BRANCH)),,-b) --newversion $(VERSION) --distribution unstable --force-distribution "git $(VERSION)"
 	dpkg-buildpackage -us -uc -b
 	mkdir -p dist
 	mv ../pvs-monitoring_*.deb dist/ || true
