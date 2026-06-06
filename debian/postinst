@@ -6,10 +6,12 @@ if [ "$1" = "configure" ]; then
     mkdir -p /var/lib/pvs-monitor
     mkdir -p /etc/pvs-monitor
     
-    # If config.yaml doesn't exist, copy from example
+    # If config.yaml doesn't exist, put the default in place
     if [ ! -f /etc/pvs-monitor/config.yaml ]; then
-        cp /etc/pvs-monitor/config.yaml.example /etc/pvs-monitor/config.yaml
+        mv /etc/pvs-monitor/config.yaml.dpkg-new /etc/pvs-monitor/config.yaml
         echo "Created /etc/pvs-monitor/config.yaml — edit it to set your PVS6 address and credentials."
+    else
+        rm -f /etc/pvs-monitor/config.yaml.dpkg-new
     fi
     
     # Generate self-signed TLS certificate if it doesn't exist

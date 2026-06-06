@@ -22,8 +22,9 @@ override_dh_auto_install:
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
 	
-	# Install example config
+	# Install example config (as both the example and the default live config)
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.example
+	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
 
 override_dh_auto_test:
 	go test ./...
