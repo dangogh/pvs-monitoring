@@ -7,9 +7,9 @@ export PATH := $(HOME)/go/bin:$(PATH)
 	dh $@ --without usrlocal --without dwz
 
 override_dh_auto_build:
-	go build -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
-	go build -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
-	go build -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
 
 override_dh_auto_install:
 	# Install binaries
