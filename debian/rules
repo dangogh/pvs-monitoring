@@ -7,9 +7,9 @@ export PATH := $(HOME)/go/bin:$(PATH)
 	dh $@ --without usrlocal --without dwz
 
 override_dh_auto_build:
-	go build -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
-	go build -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
-	go build -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
+	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
 
 override_dh_auto_install:
 	# Install binaries
@@ -22,8 +22,9 @@ override_dh_auto_install:
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
 	
-	# Install example config
+	# Install example config (as both the example and the default live config)
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.example
+	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
 
 override_dh_auto_test:
 	go test ./...
