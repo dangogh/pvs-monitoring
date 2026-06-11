@@ -48,9 +48,18 @@ type rawInverter struct {
 	FreqHz       string `json:"freq_hz"`
 }
 
-func parseFloat(s string) float64 {
-	f, _ := strconv.ParseFloat(s, 64)
-	return f
+// parseFloat converts a PVS6 numeric string to float64.
+// An empty string returns (0, nil) since sleeping inverters legitimately omit fields.
+// A non-empty unparseable value returns an error.
+func parseFloat(field, s string) (float64, error) {
+	if s == "" {
+		return 0, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("field %s: cannot parse %q as float: %w", field, s, err)
+	}
+	return f, nil
 }
 
 // Device is the raw device list entry from the PVS6, used during parsing before typed dispatch.
@@ -92,19 +101,39 @@ func (d Device) ToInverter(receivedAt time.Time) (InverterDevice, error) {
 	if err := json.Unmarshal(d.Raw, &r); err != nil {
 		return InverterDevice{}, err
 	}
-	return InverterDevice{
-		Serial:        r.Serial,
-		State:         r.State,
-		StateDescr:    r.StateDescr,
-		ReceivedAt:    receivedAt,
-		PowerKW:       parseFloat(r.PowerKW),
-		LifetimeKWh:   parseFloat(r.LifetimeKWh),
-		VoltageV:      parseFloat(r.VoltageV),
-		CurrentA:      parseFloat(r.CurrentA),
-		PowerMPPT1KW:  parseFloat(r.PowerMPPT1),
-		VoltageMPPT1V: parseFloat(r.VoltageMPPT1),
-		CurrentMPPT1A: parseFloat(r.CurrentMPPT1),
-		TempC:         parseFloat(r.TempC),
-		FreqHz:        parseFloat(r.FreqHz),
-	}, nil
+	var err error
+	inv := InverterDevice{
+		Serial:     r.Serial,
+		State:      r.State,
+		StateDescr: r.StateDescr,
+		ReceivedAt: receivedAt,
+	}
+	if inv.PowerKW, err = parseFloat("power_kw", r.PowerKW); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.LifetimeKWh, err = parseFloat("lifetime_kwh", r.LifetimeKWh); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.VoltageV, err = parseFloat("voltage_v", r.VoltageV); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.CurrentA, err = parseFloat("current_a", r.CurrentA); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.PowerMPPT1KW, err = parseFloat("power_mppt1_kw", r.PowerMPPT1); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.VoltageMPPT1V, err = parseFloat("voltage_mppt1_v", r.VoltageMPPT1); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.CurrentMPPT1A, err = parseFloat("current_mppt1_a", r.CurrentMPPT1); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.TempC, err = parseFloat("temp_c", r.TempC); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	if inv.FreqHz, err = parseFloat("freq_hz", r.FreqHz); err != nil {
+		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	return inv, nil
 }
