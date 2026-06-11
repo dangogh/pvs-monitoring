@@ -2,6 +2,7 @@ package pvs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -171,6 +172,10 @@ func (m *Monitor) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if errors.As(err, new(connected)) {
+			// Dial succeeded; reset backoff so a brief drop doesn't cause a long wait.
+			backoff = m.reconnectInitial
+		}
 		m.logger.Error("connection lost, reconnecting", "err", err, "backoff", backoff)
 		select {
 		case <-ctx.Done():
@@ -184,13 +189,20 @@ func (m *Monitor) Run(ctx context.Context) error {
 	}
 }
 
+// connected is a sentinel error returned by connect when the dial succeeded
+// but the connection subsequently dropped. Run uses this to reset backoff.
+type connected struct{ err error }
+
+func (c connected) Error() string { return c.err.Error() }
+func (c connected) Unwrap() error { return c.err }
+
 func (m *Monitor) connect(ctx context.Context) error {
 	r, cleanup, err := m.dialer.dial(ctx, m.addr)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
-	return m.runLoop(ctx, r)
+	return connected{m.runLoop(ctx, r)}
 }
 
 func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
