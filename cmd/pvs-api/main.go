@@ -10,13 +10,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/dangogh/pvs-monitoring/pvs"
 	"github.com/dangogh/pvs-monitoring/store/sqlite"
 )
 
 func defaultDBPath() string {
-	home, _ := os.UserHomeDir()
 	base := os.Getenv("XDG_DATA_HOME")
 	if base == "" {
+		home, _ := os.UserHomeDir()
 		base = home + "/.local/share"
 	}
 	return base + "/pvs-monitor/readings.db"
@@ -59,23 +60,27 @@ func run(args []string, ctx context.Context) error {
 	}
 	defer store.Close()
 
+	return serve(ctx, store, listenAddr, tlsCert, tlsKey, logger)
+}
+
+func serve(ctx context.Context, store pvs.Store, addr, tlsCert, tlsKey string, logger *slog.Logger) error {
 	srv := &apiServer{store: store, logger: logger}
-	httpSrv := &http.Server{Addr: listenAddr, Handler: srv.routes()}
+	httpSrv := &http.Server{Addr: addr, Handler: srv.routes()}
 
 	go func() {
 		<-ctx.Done()
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-api listening", "addr", listenAddr, "tls", tlsCert != "")
-	var listenErr error
+	logger.Info("pvs-api listening", "addr", addr, "tls", tlsCert != "")
+	var err error
 	if tlsCert != "" {
-		listenErr = httpSrv.ListenAndServeTLS(tlsCert, tlsKey)
+		err = httpSrv.ListenAndServeTLS(tlsCert, tlsKey)
 	} else {
-		listenErr = httpSrv.ListenAndServe()
+		err = httpSrv.ListenAndServe()
 	}
-	if listenErr != http.ErrServerClosed {
-		return listenErr
+	if err != http.ErrServerClosed {
+		return err
 	}
 	return nil
 }
