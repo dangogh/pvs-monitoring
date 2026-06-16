@@ -34,6 +34,7 @@ deb-linux:
 
 deb:
 	mkdir -p dist
+	chmod a+w dist
 	docker build --platform linux/arm64 -t pvs-deb-builder -f Dockerfile.deb .
 	docker run --rm --platform linux/arm64 \
 		-v "$(CURDIR)/dist":/out \
