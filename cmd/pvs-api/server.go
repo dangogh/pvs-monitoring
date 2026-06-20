@@ -61,10 +61,12 @@ type summaryData struct {
 }
 
 // seriesPoint uses compact keys to minimise JSON payload size.
+// SolarKW and LoadKW are pointers so gap sentinel points serialize as null,
+// which causes Highcharts to break the line instead of connecting across the gap.
 type seriesPoint struct {
-	TimeMS  int64   `json:"t"` // milliseconds — Highcharts datetime axis format
-	SolarKW float64 `json:"s"`
-	LoadKW  float64 `json:"l"`
+	TimeMS  int64    `json:"t"` // milliseconds — Highcharts datetime axis format
+	SolarKW *float64 `json:"s"`
+	LoadKW  *float64 `json:"l"`
 }
 
 func (s *apiServer) handleCurrent(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +129,7 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 			AvgSolarKW: avg.SolarKW,
 			AvgLoadKW:  avg.LoadKW,
 		},
-		Series: toSeriesPoints(pts),
+		Series: toSeriesPoints(pts, bucket),
 	}
 	if reading != nil {
 		cr := currentReading{
@@ -160,10 +162,20 @@ func parseTimeRange(r *http.Request) (since, until time.Time, err error) {
 	return time.Unix(sinceUnix, 0), time.Unix(untilUnix, 0), nil
 }
 
-func toSeriesPoints(pts []pvs.SeriesPoint) []seriesPoint {
-	out := make([]seriesPoint, len(pts))
+func toSeriesPoints(pts []pvs.SeriesPoint, bucketSeconds int64) []seriesPoint {
+	if len(pts) == 0 {
+		return nil
+	}
+	gap := time.Duration(bucketSeconds*2) * time.Second
+	out := make([]seriesPoint, 0, len(pts))
 	for i, p := range pts {
-		out[i] = seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: p.SolarKW, LoadKW: p.LoadKW}
+		if i > 0 && p.Time.Sub(pts[i-1].Time) > gap {
+			// Insert a null sentinel so Highcharts breaks the line across the gap.
+			mid := pts[i-1].Time.Add(p.Time.Sub(pts[i-1].Time) / 2)
+			out = append(out, seriesPoint{TimeMS: mid.UnixMilli()})
+		}
+		s, l := p.SolarKW, p.LoadKW
+		out = append(out, seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: &s, LoadKW: &l})
 	}
 	return out
 }

@@ -488,8 +488,8 @@ function updateSummary(s) {
 
 // ── Chart ─────────────────────────────────────────────────────
 function buildChartOptions(series, rangeLabel) {
-  const solar = series.map(p => [p.t, parseFloat(p.s.toFixed(3))]);
-  const load  = series.map(p => [p.t, parseFloat(p.l.toFixed(3))]);
+  const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
+  const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
 
   return {
     chart: {

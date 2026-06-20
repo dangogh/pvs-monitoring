@@ -303,22 +303,48 @@ func TestToSeriesPoints(t *testing.T) {
 	pts := []pvs.SeriesPoint{
 		{Time: ts, SolarKW: 3.0, LoadKW: 1.5},
 	}
-	got := toSeriesPoints(pts)
+	got := toSeriesPoints(pts, 300)
 	if len(got) != 1 {
 		t.Fatalf("want 1, got %d", len(got))
 	}
 	if got[0].TimeMS != ts.UnixMilli() {
 		t.Errorf("TimeMS: want %d, got %d", ts.UnixMilli(), got[0].TimeMS)
 	}
-	if got[0].SolarKW != 3.0 || got[0].LoadKW != 1.5 {
+	if got[0].SolarKW == nil || *got[0].SolarKW != 3.0 || got[0].LoadKW == nil || *got[0].LoadKW != 1.5 {
 		t.Errorf("unexpected values: %+v", got[0])
 	}
 }
 
 func TestToSeriesPoints_Empty(t *testing.T) {
-	got := toSeriesPoints(nil)
+	got := toSeriesPoints(nil, 300)
 	if len(got) != 0 {
 		t.Errorf("want empty, got %d", len(got))
+	}
+}
+
+func TestToSeriesPoints_Gap(t *testing.T) {
+	ts := time.Unix(1700000000, 0)
+	pts := []pvs.SeriesPoint{
+		{Time: ts, SolarKW: 1.0, LoadKW: 0.5},
+		{Time: ts.Add(300 * time.Second), SolarKW: 2.0, LoadKW: 1.0}, // exactly 1 bucket gap → no sentinel
+		{Time: ts.Add(600 * time.Second), SolarKW: 3.0, LoadKW: 1.5}, // exactly 2 bucket gap → no sentinel (not strictly greater)
+	}
+	got := toSeriesPoints(pts, 300)
+	if len(got) != 3 {
+		t.Fatalf("want 3 points (no gap sentinel), got %d", len(got))
+	}
+
+	// Now a gap that exceeds 2× bucket (2×300s = 600s): use 700s gap.
+	pts2 := []pvs.SeriesPoint{
+		{Time: ts, SolarKW: 1.0, LoadKW: 0.5},
+		{Time: ts.Add(700 * time.Second), SolarKW: 2.0, LoadKW: 1.0},
+	}
+	got2 := toSeriesPoints(pts2, 300)
+	if len(got2) != 3 {
+		t.Fatalf("want 3 points (2 data + 1 gap sentinel), got %d", len(got2))
+	}
+	if got2[1].SolarKW != nil || got2[1].LoadKW != nil {
+		t.Errorf("middle point should be null sentinel, got %+v", got2[1])
 	}
 }
 
