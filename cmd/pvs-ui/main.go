@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,15 +50,23 @@ func run(args []string, ctx context.Context) error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
+	apiURL, err := url.Parse(apiBase)
+	if err != nil {
+		return fmt.Errorf("invalid -api URL: %w", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if apiURL.Scheme == "https" {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed cert on loopback
+	}
+	proxy := httputil.NewSingleHostReverseProxy(apiURL)
+	proxy.Transport = transport
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(indexHTML)
 	})
-	mux.HandleFunc("GET /config.json", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"api_base": apiBase})
-	})
+	mux.Handle("/api/", proxy)
 
 	httpSrv := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {
