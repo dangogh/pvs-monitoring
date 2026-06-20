@@ -311,7 +311,7 @@
   <!-- Overview tab -->
   <div id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="btn-overview">
 
-    <section aria-label="Current power readings" aria-live="polite" aria-atomic="false" class="current-stats">
+    <section aria-label="Current power readings" aria-live="polite" aria-atomic="true" class="current-stats">
       <div class="stat-card production" role="group" aria-label="Solar production">
         <span class="stat-label">Production</span>
         <div class="stat-row">
@@ -451,6 +451,8 @@ function updateCurrent(c) {
   if (!c) return;
   document.getElementById('solar-kw').textContent = fmt1(c.solar_kw);
   document.getElementById('load-kw').textContent  = fmt1(c.load_kw);
+  document.querySelector('.stat-card.production').setAttribute('aria-label', 'Solar production: ' + fmt1(c.solar_kw) + ' kilowatts');
+  document.querySelector('.stat-card.usage').setAttribute('aria-label', 'Home usage: ' + fmt1(c.load_kw) + ' kilowatts');
 
   const netKW   = c.net_kw;
   const netEl   = document.getElementById('net-kw');
@@ -461,7 +463,7 @@ function updateCurrent(c) {
   netEl.textContent   = fmt1(Math.abs(netKW));
   labelEl.textContent = exporting ? 'Exporting' : 'Importing';
   cardEl.className    = 'stat-card ' + (exporting ? 'net-export' : 'net-import');
-  cardEl.setAttribute('aria-label', exporting ? 'Exporting to grid' : 'Importing from grid');
+  cardEl.setAttribute('aria-label', (exporting ? 'Exporting to grid: ' : 'Importing from grid: ') + fmt1(Math.abs(netKW)) + ' kilowatts');
 
   const age = Math.round((Date.now() - new Date(c.updated_at).getTime()) / 1000);
   let ageStr;
@@ -478,12 +480,16 @@ function updateSummary(s) {
   document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
   document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
   document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
+  document.querySelector('[aria-label="Energy produced"]').setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
+  document.querySelector('[aria-label^="Energy consumed"]').setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
+  document.querySelector('[aria-label="Average production"]').setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
 
   const netEl = document.getElementById('sum-net');
   const net   = s.net_kwh;
   netEl.textContent = fmtKWh(Math.abs(net));
-  netEl.parentElement.querySelector('.summary-unit').textContent =
-    net < 0 ? 'kWh exported' : 'kWh imported';
+  const netUnit = net < 0 ? 'kWh exported' : 'kWh imported';
+  netEl.parentElement.querySelector('.summary-unit').textContent = netUnit;
+  netEl.parentElement.setAttribute('aria-label', (net < 0 ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
 }
 
 // ── Chart ─────────────────────────────────────────────────────
