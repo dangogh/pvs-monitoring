@@ -38,5 +38,7 @@ type Store interface {
 	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
 	LatestInverters(ctx context.Context) ([]InverterDevice, error)
 	LatestAuxDevices(ctx context.Context) ([]AuxDevice, error)
+	OpenInverterOutage(ctx context.Context, serial string, at time.Time) error
+	CloseInverterOutage(ctx context.Context, serial string, at time.Time) error
 	Close() error
 }

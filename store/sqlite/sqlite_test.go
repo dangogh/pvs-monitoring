@@ -202,6 +202,73 @@ func TestSaveAndLatestDevices(t *testing.T) {
 	})
 }
 
+func TestInverterOutages(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+
+	t.Run("open creates a record with no healthy_at", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+
+		var serial string
+		var errorAt int64
+		var healthyAt *int64
+		row := s.db.QueryRowContext(ctx, `SELECT serial, error_at, healthy_at FROM inverter_outages`)
+		require.NoError(t, row.Scan(&serial, &errorAt, &healthyAt))
+		assert.Equal(t, "INV001", serial)
+		assert.Equal(t, now.Unix(), errorAt)
+		assert.Nil(t, healthyAt)
+	})
+
+	t.Run("open is a no-op when outage already open", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now.Add(time.Minute)))
+
+		var count int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM inverter_outages`).Scan(&count))
+		assert.Equal(t, 1, count, "duplicate open should be ignored")
+	})
+
+	t.Run("close sets healthy_at on most recent open outage", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+		require.NoError(t, s.CloseInverterOutage(ctx, "INV001", now.Add(time.Hour)))
+
+		var healthyAt *int64
+		row := s.db.QueryRowContext(ctx, `SELECT healthy_at FROM inverter_outages WHERE serial = 'INV001'`)
+		require.NoError(t, row.Scan(&healthyAt))
+		require.NotNil(t, healthyAt)
+		assert.Equal(t, now.Add(time.Hour).Unix(), *healthyAt)
+	})
+
+	t.Run("open after close creates a new outage", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+		require.NoError(t, s.CloseInverterOutage(ctx, "INV001", now.Add(time.Hour)))
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now.Add(2*time.Hour)))
+
+		var count int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM inverter_outages`).Scan(&count))
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("close is independent per serial", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV002", now))
+		require.NoError(t, s.CloseInverterOutage(ctx, "INV001", now.Add(time.Hour)))
+
+		var h1, h2 *int64
+		require.NoError(t, s.db.QueryRowContext(ctx,
+			`SELECT healthy_at FROM inverter_outages WHERE serial = 'INV001'`).Scan(&h1))
+		require.NoError(t, s.db.QueryRowContext(ctx,
+			`SELECT healthy_at FROM inverter_outages WHERE serial = 'INV002'`).Scan(&h2))
+		assert.NotNil(t, h1, "INV001 should be closed")
+		assert.Nil(t, h2, "INV002 should still be open")
+	})
+}
+
 func TestLatestReading(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().Truncate(time.Second)

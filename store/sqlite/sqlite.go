@@ -124,6 +124,16 @@ var migrations = []string{
 		payload     TEXT    NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_aux_received_at ON aux_device_readings(received_at);`,
+
+	// version 4: inverter outage tracking (one row per error period)
+	`CREATE TABLE inverter_outages (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial     TEXT    NOT NULL,
+		error_at   INTEGER NOT NULL,
+		healthy_at INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_outage_serial ON inverter_outages(serial);
+	CREATE INDEX IF NOT EXISTS idx_outage_open ON inverter_outages(serial) WHERE healthy_at IS NULL;`,
 }
 
 // migrateV2 copies rows from device_readings into the typed tables, then drops device_readings.
@@ -248,10 +258,74 @@ func migrateV3(tx *sql.Tx) error {
 	return err
 }
 
+// migrateV4 backfills inverter_outages from existing inverter_readings by detecting
+// state transitions (→error opens an outage, →working closes it).
+func migrateV4(tx *sql.Tx) error {
+	rows, err := tx.Query(
+		`SELECT serial, received_at, state FROM inverter_readings ORDER BY serial, received_at`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type outageRow struct {
+		serial    string
+		errorAt   int64
+		healthyAt *int64
+	}
+	var outages []outageRow
+	prevState := map[string]string{}
+	openErrorAt := map[string]int64{}
+
+	for rows.Next() {
+		var serial, state string
+		var receivedAt int64
+		if err := rows.Scan(&serial, &receivedAt, &state); err != nil {
+			return err
+		}
+		prev := prevState[serial]
+		if state == "error" && prev != "error" {
+			openErrorAt[serial] = receivedAt
+		} else if state != "error" && prev == "error" {
+			ea := openErrorAt[serial]
+			ha := receivedAt
+			outages = append(outages, outageRow{serial, ea, &ha})
+			delete(openErrorAt, serial)
+		}
+		prevState[serial] = state
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for serial, errorAt := range openErrorAt {
+		outages = append(outages, outageRow{serial, errorAt, nil})
+	}
+
+	for _, o := range outages {
+		if o.healthyAt != nil {
+			if _, err := tx.Exec(
+				`INSERT INTO inverter_outages (serial, error_at, healthy_at) VALUES (?, ?, ?)`,
+				o.serial, o.errorAt, *o.healthyAt,
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.Exec(
+				`INSERT INTO inverter_outages (serial, error_at) VALUES (?, ?)`,
+				o.serial, o.errorAt,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // dataMigrations holds optional data-migration functions keyed by migration index (0-based).
 var dataMigrations = map[int]func(*sql.Tx) error{
 	1: migrateV2,
 	2: migrateV3,
+	3: migrateV4,
 }
 
 func migrate(db *sql.DB) error {
@@ -481,6 +555,34 @@ func (s *Store) CountReadings(ctx context.Context) (int64, error) {
 	var count int64
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings`).Scan(&count)
 	return count, err
+}
+
+// OpenInverterOutage records that serial entered error state at at.
+// If an open outage already exists for this serial (e.g. after a service restart),
+// this is a no-op so we don't create duplicate records.
+func (s *Store) OpenInverterOutage(ctx context.Context, serial string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO inverter_outages (serial, error_at)
+		 SELECT ?, ? WHERE NOT EXISTS (
+		     SELECT 1 FROM inverter_outages WHERE serial = ? AND healthy_at IS NULL
+		 )`,
+		serial, at.Unix(), serial,
+	)
+	return err
+}
+
+// CloseInverterOutage records that serial returned to a healthy state at at.
+func (s *Store) CloseInverterOutage(ctx context.Context, serial string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE inverter_outages SET healthy_at = ?
+		 WHERE id = (
+		     SELECT id FROM inverter_outages
+		     WHERE serial = ? AND healthy_at IS NULL
+		     ORDER BY error_at DESC LIMIT 1
+		 )`,
+		at.Unix(), serial,
+	)
+	return err
 }
 
 func (s *Store) Close() error {

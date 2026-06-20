@@ -314,14 +314,15 @@ func (f *fakeDoer) Do(_ *http.Request) (*http.Response, error) {
 func newPollerWithDoer(t *testing.T, doer httpDoer) *DevicePoller {
 	t.Helper()
 	p := &DevicePoller{
-		url:      "http://fake/cgi-bin/dl_cgi/devices/list",
-		authURL:  "http://fake/auth",
-		varsBase: "http://fake",
-		interval: time.Hour,
-		username: "user",
-		password: "pass",
-		client:   doer,
-		logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		url:               "http://fake/cgi-bin/dl_cgi/devices/list",
+		authURL:           "http://fake/auth",
+		varsBase:          "http://fake",
+		interval:          time.Hour,
+		username:          "user",
+		password:          "pass",
+		client:            doer,
+		logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		lastInverterState: make(map[string]string),
 	}
 	return p
 }
@@ -375,11 +376,19 @@ func TestDevicePollerFetchWithFakeDoer(t *testing.T) {
 	}
 }
 
-// fakeDeviceStore records SaveDevices calls.
+// fakeOutage records a single open/close outage event pair.
+type fakeOutage struct {
+	serial    string
+	errorAt   time.Time
+	healthyAt time.Time // zero if still open
+}
+
+// fakeDeviceStore records SaveDevices and outage calls.
 type fakeDeviceStore struct {
 	mu          sync.Mutex
 	saveCount   int
 	lastDevices []Device
+	outages     []fakeOutage
 }
 
 func (f *fakeDeviceStore) SaveReading(_ context.Context, _ *Reading) error   { return nil }
@@ -403,4 +412,134 @@ func (f *fakeDeviceStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ in
 func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)              { return 0, nil }
 func (f *fakeDeviceStore) LatestInverters(_ context.Context) ([]InverterDevice, error) { return nil, nil }
 func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)     { return nil, nil }
-func (f *fakeDeviceStore) Close() error                                                { return nil }
+func (f *fakeDeviceStore) OpenInverterOutage(_ context.Context, serial string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outages = append(f.outages, fakeOutage{serial: serial, errorAt: at})
+	return nil
+}
+func (f *fakeDeviceStore) CloseInverterOutage(_ context.Context, serial string, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.outages) - 1; i >= 0; i-- {
+		if f.outages[i].serial == serial && f.outages[i].healthyAt.IsZero() {
+			f.outages[i].healthyAt = at
+			return nil
+		}
+	}
+	return nil
+}
+func (f *fakeDeviceStore) Close() error { return nil }
+
+func TestDevicePollerOutageTracking(t *testing.T) {
+	ctx := context.Background()
+
+	inv := func(state string) map[string]any {
+		return map[string]any{
+			"SERIAL": "INV001", "DEVICE_TYPE": "Inverter",
+			"TYPE": "MI", "MODEL": "SPR-X22", "STATE": state, "STATEDESCR": state,
+		}
+	}
+
+	t.Run("sustained error only opens one outage", func(t *testing.T) {
+		responses := [][]map[string]any{
+			{inv("error")},
+			{inv("error")},
+			{inv("error")},
+		}
+		i := 0
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody(responses[i]))
+			i++
+		})
+		defer srv.Close()
+		store := &fakeDeviceStore{}
+		p := newTestPoller(t, srv, store)
+
+		for range responses {
+			require.NoError(t, p.poll(ctx))
+		}
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 0, store.saveCount, "no inverter_readings rows for sustained error")
+		require.Len(t, store.outages, 1)
+		assert.Equal(t, "INV001", store.outages[0].serial)
+		assert.True(t, store.outages[0].healthyAt.IsZero(), "outage should still be open")
+	})
+
+	t.Run("working to error opens outage", func(t *testing.T) {
+		responses := [][]map[string]any{
+			{inv("working")},
+			{inv("error")},
+		}
+		i := 0
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody(responses[i]))
+			i++
+		})
+		defer srv.Close()
+		store := &fakeDeviceStore{}
+		p := newTestPoller(t, srv, store)
+
+		require.NoError(t, p.poll(ctx)) // working → saved
+		require.NoError(t, p.poll(ctx)) // error → outage opened, not saved
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 1, store.saveCount, "only the working poll is saved")
+		require.Len(t, store.outages, 1)
+		assert.True(t, store.outages[0].healthyAt.IsZero())
+	})
+
+	t.Run("error to working closes outage and saves reading", func(t *testing.T) {
+		responses := [][]map[string]any{
+			{inv("error")},
+			{inv("working")},
+		}
+		i := 0
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody(responses[i]))
+			i++
+		})
+		defer srv.Close()
+		store := &fakeDeviceStore{}
+		p := newTestPoller(t, srv, store)
+
+		require.NoError(t, p.poll(ctx)) // error → outage opened
+		require.NoError(t, p.poll(ctx)) // working → outage closed, reading saved
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 1, store.saveCount)
+		require.Len(t, store.outages, 1)
+		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage should be closed")
+	})
+
+	t.Run("non-inverter devices always saved", func(t *testing.T) {
+		mtr := map[string]any{
+			"SERIAL": "MTR001", "DEVICE_TYPE": "Power Meter",
+			"TYPE": "PVS5-METER-P", "MODEL": "PVS6M", "STATE": "working", "STATEDESCR": "Working",
+		}
+		responses := [][]map[string]any{
+			{inv("error"), mtr},
+			{inv("error"), mtr},
+		}
+		i := 0
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody(responses[i]))
+			i++
+		})
+		defer srv.Close()
+		store := &fakeDeviceStore{}
+		p := newTestPoller(t, srv, store)
+
+		require.NoError(t, p.poll(ctx))
+		require.NoError(t, p.poll(ctx))
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 2, store.saveCount, "meter saved on every poll")
+		assert.Len(t, store.outages, 1, "only one outage opened for inverter")
+	})
+}

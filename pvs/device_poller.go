@@ -40,8 +40,9 @@ type DevicePoller struct {
 	logger   *slog.Logger
 	store    Store
 
-	mu      sync.RWMutex
-	current []Device
+	mu                sync.RWMutex
+	current           []Device
+	lastInverterState map[string]string // serial → last saved state; guards outage open/close logic
 }
 
 // newPVSTLSConfig returns a TLS config for the PVS6 HTTPS connection.
@@ -96,8 +97,9 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 				TLSClientConfig: newPVSTLSConfig(cfg.TLSFingerprint),
 			},
 		},
-		logger: logger,
-		store:  store,
+		logger:            logger,
+		store:             store,
+		lastInverterState: make(map[string]string),
 	}
 }
 
@@ -143,6 +145,7 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 	p.mu.Lock()
 	p.current = devices
 	p.mu.Unlock()
+
 	stateCounts := make(map[string]int)
 	for _, d := range devices {
 		stateCounts[d.State]++
@@ -153,8 +156,46 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 		args = append(args, state, n)
 	}
 	p.logger.Info("device list updated", args...)
-	if p.store != nil {
-		if err := p.store.SaveDevices(ctx, devices, now); err != nil {
+
+	// Build the list of devices to persist. Inverters in a sustained error state are
+	// tracked in inverter_outages instead of inverter_readings to avoid accumulating
+	// thousands of identical rows overnight.
+	toSave := make([]Device, 0, len(devices))
+	for _, d := range devices {
+		if d.DeviceType != "Inverter" {
+			toSave = append(toSave, d)
+			continue
+		}
+		prev := p.lastInverterState[d.Serial]
+		switch {
+		case d.State == "error" && prev == "error":
+			// sustained error: skip
+		case d.State == "error":
+			// transition to error: open an outage record, don't write to inverter_readings
+			p.lastInverterState[d.Serial] = "error"
+			if p.store != nil {
+				if err := p.store.OpenInverterOutage(ctx, d.Serial, now); err != nil {
+					p.logger.Error("open outage failed", "serial", d.Serial, "err", err)
+				}
+			}
+		case prev == "error":
+			// recovery: close the outage and save the healthy reading
+			p.lastInverterState[d.Serial] = d.State
+			if p.store != nil {
+				if err := p.store.CloseInverterOutage(ctx, d.Serial, now); err != nil {
+					p.logger.Error("close outage failed", "serial", d.Serial, "err", err)
+				}
+			}
+			toSave = append(toSave, d)
+		default:
+			// healthy (working → working, or first poll)
+			p.lastInverterState[d.Serial] = d.State
+			toSave = append(toSave, d)
+		}
+	}
+
+	if p.store != nil && len(toSave) > 0 {
+		if err := p.store.SaveDevices(ctx, toSave, now); err != nil {
 			return fmt.Errorf("save devices: %w", err)
 		}
 	}
