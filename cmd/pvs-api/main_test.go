@@ -55,7 +55,6 @@ func TestServe_StartsAndStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := ln.Addr().String()
-	ln.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	store := &fakeStore{}
@@ -63,20 +62,14 @@ func TestServe_StartsAndStops(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- serve(ctx, store, addr, "", "", logger)
+		done <- serve(ctx, store, ln, "", "", logger)
 	}()
 
-	// wait for the server to be ready
-	var resp *http.Response
-	for range 20 {
-		resp, err = http.Get("http://" + addr + "/api/current")
-		if err == nil {
-			break
-		}
-	}
+	// Listener is already bound so the server is ready to accept immediately.
+	resp, err := http.Get("http://" + addr + "/api/current")
 	if err != nil {
 		cancel()
-		t.Fatalf("server never became ready: %v", err)
+		t.Fatalf("server not ready: %v", err)
 	}
 	resp.Body.Close()
 

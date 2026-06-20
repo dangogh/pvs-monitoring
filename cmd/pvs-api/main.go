@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -60,24 +61,28 @@ func run(args []string, ctx context.Context) error {
 	}
 	defer store.Close()
 
-	return serve(ctx, store, listenAddr, tlsCert, tlsKey, logger)
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	return serve(ctx, store, ln, tlsCert, tlsKey, logger)
 }
 
-func serve(ctx context.Context, store pvs.Store, addr, tlsCert, tlsKey string, logger *slog.Logger) error {
+func serve(ctx context.Context, store pvs.Store, ln net.Listener, tlsCert, tlsKey string, logger *slog.Logger) error {
 	srv := &apiServer{store: store, logger: logger}
-	httpSrv := &http.Server{Addr: addr, Handler: srv.routes()}
+	httpSrv := &http.Server{Handler: srv.routes()}
 
 	go func() {
 		<-ctx.Done()
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-api listening", "addr", addr, "tls", tlsCert != "")
+	logger.Info("pvs-api listening", "addr", ln.Addr(), "tls", tlsCert != "")
 	var err error
 	if tlsCert != "" {
-		err = httpSrv.ListenAndServeTLS(tlsCert, tlsKey)
+		err = httpSrv.ServeTLS(ln, tlsCert, tlsKey)
 	} else {
-		err = httpSrv.ListenAndServe()
+		err = httpSrv.Serve(ln)
 	}
 	if err != http.ErrServerClosed {
 		return err
