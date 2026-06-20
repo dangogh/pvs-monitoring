@@ -103,9 +103,26 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 	}
 }
 
+// seedFromStore initialises lastInverterState from any open outages in the store.
+// This ensures that inverters which recovered while the daemon was down have
+// their outages closed correctly on the first poll after a restart.
+func (p *DevicePoller) seedFromStore(ctx context.Context) {
+	serials, err := p.store.ListOpenInverterOutages(ctx)
+	if err != nil {
+		p.logger.Warn("could not load open outages for state seeding", "err", err)
+		return
+	}
+	for _, serial := range serials {
+		p.lastInverterState[serial] = "error"
+	}
+}
+
 // Run polls the device list on a ticker until ctx is cancelled.
 // Returns immediately with an error on authentication failure.
 func (p *DevicePoller) Run(ctx context.Context) error {
+	if p.store != nil {
+		p.seedFromStore(ctx)
+	}
 	// Firmware 2025.10+ disables WebSocket telemetry by default; re-enable it on startup.
 	if err := p.enableTelemetryWS(ctx); err != nil {
 		if _, ok := err.(authError); ok {

@@ -267,6 +267,17 @@ func TestInverterOutages(t *testing.T) {
 		assert.NotNil(t, h1, "INV001 should be closed")
 		assert.Nil(t, h2, "INV002 should still be open")
 	})
+
+	t.Run("ListOpenInverterOutages returns only open serials", func(t *testing.T) {
+		s := openTestStore(t)
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV001", now))
+		require.NoError(t, s.OpenInverterOutage(ctx, "INV002", now))
+		require.NoError(t, s.CloseInverterOutage(ctx, "INV001", now.Add(time.Hour)))
+
+		serials, err := s.ListOpenInverterOutages(ctx)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"INV002"}, serials)
+	})
 }
 
 func TestLatestReading(t *testing.T) {

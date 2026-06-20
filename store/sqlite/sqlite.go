@@ -585,6 +585,23 @@ func (s *Store) CloseInverterOutage(ctx context.Context, serial string, at time.
 	return err
 }
 
+func (s *Store) ListOpenInverterOutages(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT serial FROM inverter_outages WHERE healthy_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("query open outages: %w", err)
+	}
+	defer rows.Close()
+	var serials []string
+	for rows.Next() {
+		var serial string
+		if err := rows.Scan(&serial); err != nil {
+			return nil, fmt.Errorf("scan serial: %w", err)
+		}
+		serials = append(serials, serial)
+	}
+	return serials, rows.Err()
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }

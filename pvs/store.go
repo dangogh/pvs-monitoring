@@ -40,5 +40,6 @@ type Store interface {
 	LatestAuxDevices(ctx context.Context) ([]AuxDevice, error)
 	OpenInverterOutage(ctx context.Context, serial string, at time.Time) error
 	CloseInverterOutage(ctx context.Context, serial string, at time.Time) error
+	ListOpenInverterOutages(ctx context.Context) ([]string, error)
 	Close() error
 }

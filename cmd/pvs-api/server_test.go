@@ -48,6 +48,7 @@ func (f *fakeStore) LatestInverters(_ context.Context) ([]pvs.InverterDevice, er
 func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]pvs.AuxDevice, error)              { return nil, nil }
 func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error        { return nil }
 func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error       { return nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)              { return nil, nil }
 func (f *fakeStore) Close() error                                                             { return nil }
 
 func newServer(store pvs.Store) *apiServer {

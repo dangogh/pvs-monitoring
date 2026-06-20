@@ -296,9 +296,10 @@ func (f *fakeStore) CountReadings(_ context.Context) (int64, error)             
 func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error  { return nil }
 func (f *fakeStore) LatestInverters(_ context.Context) ([]InverterDevice, error)   { return nil, nil }
 func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)              { return nil, nil }
-func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error   { return nil }
-func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
-func (f *fakeStore) Close() error                                                        { return nil }
+func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error        { return nil }
+func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error       { return nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)              { return nil, nil }
+func (f *fakeStore) Close() error                                                             { return nil }
 
 func TestRunLoopCountsReadings(t *testing.T) {
 	ts := int64(1779680954)

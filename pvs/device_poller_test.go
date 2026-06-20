@@ -429,6 +429,17 @@ func (f *fakeDeviceStore) CloseInverterOutage(_ context.Context, serial string, 
 	}
 	return nil
 }
+func (f *fakeDeviceStore) ListOpenInverterOutages(_ context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []string
+	for _, o := range f.outages {
+		if o.healthyAt.IsZero() {
+			out = append(out, o.serial)
+		}
+	}
+	return out, nil
+}
 func (f *fakeDeviceStore) Close() error { return nil }
 
 func TestDevicePollerOutageTracking(t *testing.T) {
@@ -514,6 +525,29 @@ func TestDevicePollerOutageTracking(t *testing.T) {
 		assert.Equal(t, 1, store.saveCount)
 		require.Len(t, store.outages, 1)
 		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage should be closed")
+	})
+
+	t.Run("restart: open outage closed when inverter already recovered", func(t *testing.T) {
+		// Simulate daemon restart: store has an open outage from before the restart,
+		// but the inverter is now healthy. Without seeding, lastInverterState is empty
+		// so poll() would see prev="" and not close the outage.
+		store := &fakeDeviceStore{
+			outages: []fakeOutage{{serial: "INV001", errorAt: time.Now().Add(-8 * time.Hour)}},
+		}
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody([]map[string]any{inv("working")}))
+		})
+		defer srv.Close()
+		p := newTestPoller(t, srv, store)
+
+		p.seedFromStore(ctx)
+		require.NoError(t, p.poll(ctx))
+
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		require.Len(t, store.outages, 1)
+		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage should be closed after recovery")
+		assert.Equal(t, 1, store.saveCount, "healthy reading saved after recovery")
 	})
 
 	t.Run("non-inverter devices always saved", func(t *testing.T) {
