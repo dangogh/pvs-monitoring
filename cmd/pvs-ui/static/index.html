@@ -644,7 +644,8 @@ async function loadRange(name, customSince, customUntil) {
 
     updateCurrent(data.current);
     updateSummary(data.summary);
-    renderChart(data.series, label, since, until);
+    const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
+    renderChart(data.series, label, chartSince, until);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
   }

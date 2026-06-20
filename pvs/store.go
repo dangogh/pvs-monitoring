@@ -31,6 +31,7 @@ type SeriesPoint struct {
 type Store interface {
 	SaveReading(ctx context.Context, r *Reading) error
 	LatestReading(ctx context.Context) (*Reading, error)
+	EarliestReadingAt(ctx context.Context) (time.Time, error)
 	AveragePower(ctx context.Context, since, until time.Time) (PowerAvg, error)
 	EnergyDelta(ctx context.Context, since, until time.Time) (EnergyDelta, error)
 	ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]SeriesPoint, error)

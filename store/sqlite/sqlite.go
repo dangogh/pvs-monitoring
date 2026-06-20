@@ -389,6 +389,18 @@ func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
 	return &r, nil
 }
 
+func (s *Store) EarliestReadingAt(ctx context.Context) (time.Time, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT MIN(received_at) FROM readings`)
+	var ts sql.NullInt64
+	if err := row.Scan(&ts); err != nil {
+		return time.Time{}, fmt.Errorf("query earliest reading: %w", err)
+	}
+	if !ts.Valid {
+		return time.Time{}, nil
+	}
+	return time.Unix(ts.Int64, 0), nil
+}
+
 func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.PowerAvg, error) {
 	if !until.IsZero() && since.After(until) {
 		return pvs.PowerAvg{}, fmt.Errorf("since (%s) is after until (%s)", since, until)

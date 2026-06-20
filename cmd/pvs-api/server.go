@@ -45,11 +45,12 @@ type currentReading struct {
 }
 
 type dataResponse struct {
-	Since   time.Time       `json:"since"`
-	Until   time.Time       `json:"until"`
-	Current *currentReading `json:"current"`
-	Summary summaryData     `json:"summary"`
-	Series  []seriesPoint   `json:"series"`
+	Since      time.Time       `json:"since"`
+	Until      time.Time       `json:"until"`
+	EarliestAt *time.Time      `json:"earliest_at,omitempty"`
+	Current    *currentReading `json:"current"`
+	Summary    summaryData     `json:"summary"`
+	Series     []seriesPoint   `json:"series"`
 }
 
 type summaryData struct {
@@ -119,6 +120,12 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	earliestAt, err := s.store.EarliestReadingAt(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	resp := dataResponse{
 		Since: since,
 		Until: until,
@@ -130,6 +137,9 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 			AvgLoadKW:  avg.LoadKW,
 		},
 		Series: toSeriesPoints(pts, bucket),
+	}
+	if !earliestAt.IsZero() {
+		resp.EarliestAt = &earliestAt
 	}
 	if reading != nil {
 		cr := currentReading{
