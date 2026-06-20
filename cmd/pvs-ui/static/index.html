@@ -497,6 +497,15 @@ function buildChartOptions(series, rangeLabel, since, until) {
       backgroundColor: 'transparent',
       style: { fontFamily: 'inherit', color: '#f1f5f9' },
       animation: false,
+      zoomType: 'x',
+      resetZoomButton: {
+        theme: {
+          fill: '#1e293b',
+          stroke: '#334155',
+          style: { color: '#f1f5f9' },
+          states: { hover: { fill: '#334155' } },
+        },
+      },
     },
     title: { text: null },
     credits: { enabled: false },
