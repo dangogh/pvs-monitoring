@@ -1,0 +1,2 @@
+# Allow passwordless dpkg and systemctl for pvs-monitoring deployment
+%sudo ALL=(ALL) NOPASSWD: /usr/bin/dpkg, /usr/bin/systemctl

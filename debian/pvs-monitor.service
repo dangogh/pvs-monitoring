@@ -4,7 +4,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/pvs-monitor
+ExecStart=/usr/bin/pvs-monitor --config /etc/pvs-monitor/config.yaml --db /var/lib/pvs-monitor/readings.db
 Restart=on-failure
 RestartSec=30
 StandardOutput=journal

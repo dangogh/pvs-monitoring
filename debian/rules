@@ -26,6 +26,9 @@ override_dh_auto_install:
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.example
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
 
+	# Install sudoers drop-in for passwordless deployment
+	install -D -m 440 debian/pvs-monitor.sudoers $(DESTDIR)/etc/sudoers.d/pvs-monitor
+
 override_dh_auto_test:
 	go test ./...
 
