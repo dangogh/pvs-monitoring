@@ -278,6 +278,73 @@
     .state-error   { color: var(--import); }
     .state-other   { color: var(--muted); }
 
+    /* ── Panel detail ───────────────────────────────────────── */
+    #panel-detail {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    #panel-detail.visible { display: flex; }
+
+    #panel-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #panel-detail-title {
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    #panel-detail-close {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0.25rem 0.6rem;
+    }
+
+    #panel-detail-close:hover { color: var(--text); }
+    #panel-detail-close:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .detail-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .detail-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+
+    .detail-value {
+      font-size: 1.2rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .detail-unit { font-size: 0.8rem; color: var(--muted); }
+
+    #panels-table tbody tr { cursor: pointer; }
+    #panels-table tbody tr.selected { background: rgba(245,158,11,0.12); outline: 1px solid var(--solar); }
+
     /* ── Status bar ──────────────────────────────────────────── */
     #status {
       text-align: center;
@@ -404,6 +471,13 @@
         </thead>
         <tbody id="panels-tbody"></tbody>
       </table>
+    </div>
+    <div id="panel-detail" role="region" aria-label="Panel detail" aria-live="polite">
+      <div id="panel-detail-header">
+        <span id="panel-detail-title">Panel</span>
+        <button id="panel-detail-close" aria-label="Close panel detail">✕ Close</button>
+      </div>
+      <div class="detail-grid" id="panel-detail-grid"></div>
     </div>
   </div><!-- /tab-panels -->
 
@@ -675,9 +749,10 @@ async function refreshCurrent() {
 }
 
 // ── Panels table ──────────────────────────────────────────────
-let panelsData   = [];
-let sortCol      = 'serial';
-let sortAsc      = true;
+let panelsData     = [];
+let sortCol        = 'serial';
+let sortAsc        = true;
+let selectedSerial = null;
 
 async function loadPanels() {
   try {
@@ -713,7 +788,8 @@ function renderPanels() {
     const stateClass = d.state === 'working' ? 'state-working'
                      : d.state === 'error'   ? 'state-error'
                      : 'state-other';
-    return `<tr>
+    const sel = selectedSerial === d.serial ? ' class="selected"' : '';
+    return `<tr${sel} data-serial="${d.serial}" tabindex="0" aria-selected="${selectedSerial === d.serial}">
       <td>${d.serial}</td>
       <td class="${stateClass}">${d.state_descr}</td>
       <td>${fmt2(d.power_kw)}</td>
@@ -722,7 +798,62 @@ function renderPanels() {
       <td>${fmt1(d.temp_c)}</td>
     </tr>`;
   }).join('');
+
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.addEventListener('click', () => selectPanel(tr.dataset.serial));
+    tr.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectPanel(tr.dataset.serial); }
+    });
+  });
 }
+
+// ── Panel detail ──────────────────────────────────────────────
+function selectPanel(serial) {
+  if (selectedSerial === serial) {
+    selectedSerial = null;
+    document.getElementById('panel-detail').classList.remove('visible');
+    renderPanels();
+    return;
+  }
+  selectedSerial = serial;
+  renderPanels();
+
+  const d = panelsData.find(p => p.serial === serial);
+  if (!d) return;
+
+  document.getElementById('panel-detail-title').textContent = 'Panel ' + d.serial;
+
+  const fields = [
+    { label: 'State',          value: d.state_descr,    unit: ''     },
+    { label: 'Power',          value: fmt2(d.power_kw),  unit: 'kW'  },
+    { label: 'Current',        value: fmt2(d.current_a), unit: 'A'   },
+    { label: 'Voltage (AC)',   value: fmt1(d.voltage_v), unit: 'V'   },
+    { label: 'Frequency',      value: fmt1(d.freq_hz),   unit: 'Hz'  },
+    { label: 'MPPT1 Power',    value: fmt2(d.power_mppt1_kw),   unit: 'kW' },
+    { label: 'MPPT1 Voltage',  value: fmt1(d.voltage_mppt1_v),  unit: 'V'  },
+    { label: 'MPPT1 Current',  value: fmt2(d.current_mppt1_a),  unit: 'A'  },
+    { label: 'Temperature',    value: fmt1(d.temp_c),    unit: '°C'  },
+    { label: 'Lifetime',       value: fmt2(d.lifetime_kwh), unit: 'kWh' },
+  ];
+
+  document.getElementById('panel-detail-grid').innerHTML = fields.map(f =>
+    `<div class="detail-item">
+      <span class="detail-label">${f.label}</span>
+      <span class="detail-value">${f.value}</span>
+      ${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}
+    </div>`
+  ).join('');
+
+  const detail = document.getElementById('panel-detail');
+  detail.classList.add('visible');
+  detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.getElementById('panel-detail-close').addEventListener('click', () => {
+  selectedSerial = null;
+  document.getElementById('panel-detail').classList.remove('visible');
+  renderPanels();
+});
 
 document.querySelectorAll('#panels-table thead th').forEach(th => {
   th.addEventListener('click', () => {
