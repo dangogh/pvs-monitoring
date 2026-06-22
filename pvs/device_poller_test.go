@@ -474,7 +474,7 @@ func TestDevicePollerOutageTracking(t *testing.T) {
 
 		store.mu.Lock()
 		defer store.mu.Unlock()
-		assert.Equal(t, 0, store.saveCount, "no inverter_readings rows for sustained error")
+		assert.Equal(t, 1, store.saveCount, "only one inverter_readings row written on first error transition")
 		require.Len(t, store.outages, 1)
 		assert.Equal(t, "INV001", store.outages[0].serial)
 		assert.True(t, store.outages[0].healthyAt.IsZero(), "outage should still be open")
@@ -495,11 +495,11 @@ func TestDevicePollerOutageTracking(t *testing.T) {
 		p := newTestPoller(t, srv, store)
 
 		require.NoError(t, p.poll(ctx)) // working → saved
-		require.NoError(t, p.poll(ctx)) // error → outage opened, not saved
+		require.NoError(t, p.poll(ctx)) // error → outage opened, reading saved once
 
 		store.mu.Lock()
 		defer store.mu.Unlock()
-		assert.Equal(t, 1, store.saveCount, "only the working poll is saved")
+		assert.Equal(t, 2, store.saveCount, "working poll and first error transition both saved")
 		require.Len(t, store.outages, 1)
 		assert.True(t, store.outages[0].healthyAt.IsZero())
 	})
@@ -518,12 +518,12 @@ func TestDevicePollerOutageTracking(t *testing.T) {
 		store := &fakeDeviceStore{}
 		p := newTestPoller(t, srv, store)
 
-		require.NoError(t, p.poll(ctx)) // error → outage opened
+		require.NoError(t, p.poll(ctx)) // error → outage opened, reading saved once
 		require.NoError(t, p.poll(ctx)) // working → outage closed, reading saved
 
 		store.mu.Lock()
 		defer store.mu.Unlock()
-		assert.Equal(t, 1, store.saveCount)
+		assert.Equal(t, 2, store.saveCount)
 		require.Len(t, store.outages, 1)
 		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage should be closed")
 	})
