@@ -188,8 +188,10 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 		case d.State == "error" && prev == "error":
 			// sustained error: skip
 		case d.State == "error":
-			// transition to error: open an outage record, don't write to inverter_readings
+			// transition to error: write once so the panel remains visible in the UI,
+			// then suppress further writes until state changes
 			p.lastInverterState[d.Serial] = "error"
+			toSave = append(toSave, d)
 			if p.store != nil {
 				if err := p.store.OpenInverterOutage(ctx, d.Serial, now); err != nil {
 					p.logger.Error("open outage failed", "serial", d.Serial, "err", err)
