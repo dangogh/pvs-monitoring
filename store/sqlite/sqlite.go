@@ -487,8 +487,8 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT serial, state, state_descr, received_at, power_kw, lifetime_kwh, voltage_v, current_a,
 		        power_mppt1_kw, voltage_mppt1_v, current_mppt1_a, temp_c, freq_hz
-		 FROM inverter_readings
-		 WHERE received_at = (SELECT MAX(received_at) FROM inverter_readings)
+		 FROM inverter_readings ir
+		 WHERE received_at = (SELECT MAX(received_at) FROM inverter_readings WHERE serial = ir.serial)
 		 ORDER BY serial`)
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
