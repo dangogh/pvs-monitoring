@@ -106,14 +106,27 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 // seedFromStore initialises lastInverterState from any open outages in the store.
 // This ensures that inverters which recovered while the daemon was down have
 // their outages closed correctly on the first poll after a restart.
+// Only panels that already have a reading are seeded; panels with an open outage
+// but no reading get written on the first poll so they appear in the UI.
 func (p *DevicePoller) seedFromStore(ctx context.Context) {
 	serials, err := p.store.ListOpenInverterOutages(ctx)
 	if err != nil {
 		p.logger.Warn("could not load open outages for state seeding", "err", err)
 		return
 	}
+	known, err := p.store.LatestInverters(ctx)
+	if err != nil {
+		p.logger.Warn("could not load known inverters for state seeding", "err", err)
+		return
+	}
+	hasReading := make(map[string]bool, len(known))
+	for _, inv := range known {
+		hasReading[inv.Serial] = true
+	}
 	for _, serial := range serials {
-		p.lastInverterState[serial] = "error"
+		if hasReading[serial] {
+			p.lastInverterState[serial] = "error"
+		}
 	}
 }
 
