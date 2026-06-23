@@ -485,11 +485,13 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 
 func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT serial, state, state_descr, received_at, power_kw, lifetime_kwh, voltage_v, current_a,
-		        power_mppt1_kw, voltage_mppt1_v, current_mppt1_a, temp_c, freq_hz
+		`SELECT ir.serial, ir.state, ir.state_descr, ir.received_at, ir.power_kw, ir.lifetime_kwh,
+		        ir.voltage_v, ir.current_a, ir.power_mppt1_kw, ir.voltage_mppt1_v, ir.current_mppt1_a,
+		        ir.temp_c, ir.freq_hz
 		 FROM inverter_readings ir
-		 WHERE received_at = (SELECT MAX(received_at) FROM inverter_readings WHERE serial = ir.serial)
-		 ORDER BY serial`)
+		 INNER JOIN (SELECT serial, MAX(received_at) AS max_ra FROM inverter_readings GROUP BY serial) latest
+		         ON ir.serial = latest.serial AND ir.received_at = latest.max_ra
+		 ORDER BY ir.serial`)
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
 	}
