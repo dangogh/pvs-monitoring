@@ -554,9 +554,9 @@ function updateSummary(s) {
   document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
   document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
   document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
-  document.querySelector('[aria-label="Energy produced"]').setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
-  document.querySelector('[aria-label^="Energy consumed"]').setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
-  document.querySelector('[aria-label="Average production"]').setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
+  document.getElementById('sum-solar').parentElement.setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
+  document.getElementById('sum-load').parentElement.setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
+  document.getElementById('sum-avg').parentElement.setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
 
   const netEl = document.getElementById('sum-net');
   const net   = s.net_kwh;
