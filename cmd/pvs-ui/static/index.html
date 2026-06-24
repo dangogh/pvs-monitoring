@@ -666,7 +666,7 @@ function renderChart(series, rangeLabel, since, until) {
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
-  if (chart) { chart.destroy(); chart = null; }
+  if (chart) { try { chart.destroy(); } catch (_) {} chart = null; }
   chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
 }
 
