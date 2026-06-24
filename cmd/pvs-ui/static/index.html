@@ -667,16 +667,8 @@ function renderChart(series, rangeLabel, since, until) {
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
-  const opts = buildChartOptions(series, rangeLabel, since, until);
-  if (chart) {
-    chart.series[0].setData(series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]), false);
-    chart.series[1].setData(series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]), false);
-    chart.xAxis[0].setExtremes(since * 1000, until * 1000, false);
-    chart.setTitle(null, null, false);
-    chart.redraw();
-  } else {
-    chart = Highcharts.chart('chart', opts);
-  }
+  if (chart) { chart.destroy(); chart = null; }
+  chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
 }
 
 // ── API base ──────────────────────────────────────────────────
