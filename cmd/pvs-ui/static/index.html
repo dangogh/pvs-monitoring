@@ -314,7 +314,12 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .detail-unit { font-size: 0.8rem; color: var(--muted); }
+    .detail-value .detail-unit {
+      font-size: 0.8rem;
+      font-weight: normal;
+      color: var(--muted);
+      margin-left: 0.2em;
+    }
 
     /* ── Status bar ──────────────────────────────────────────── */
     #status {
@@ -768,22 +773,21 @@ function renderPanels() {
 
 function detailRow(d) {
   const fields = [
-    { label: 'State',         value: d.state_descr,         unit: ''    },
-    { label: 'Power',         value: fmt2(d.power_kw),       unit: 'kW'  },
-    { label: 'Current',       value: fmt2(d.current_a),      unit: 'A'   },
-    { label: 'Voltage (AC)',  value: fmt1(d.voltage_v),      unit: 'V'   },
-    { label: 'Frequency',     value: fmt1(d.freq_hz),        unit: 'Hz'  },
-    { label: 'MPPT1 Power',   value: fmt2(d.power_mppt1_kw), unit: 'kW'  },
-    { label: 'MPPT1 Voltage', value: fmt1(d.voltage_mppt1_v),unit: 'V'   },
-    { label: 'MPPT1 Current', value: fmt2(d.current_mppt1_a),unit: 'A'   },
-    { label: 'Temperature',   value: fmt1(d.temp_c),         unit: '°C'  },
-    { label: 'Lifetime',      value: fmt2(d.lifetime_kwh),   unit: 'kWh' },
+    { label: 'State',         value: d.state_descr,          unit: ''    },
+    { label: 'Power',         value: fmt1(d.power_kw),        unit: 'kW'  },
+    { label: 'Current',       value: fmt1(d.current_a),       unit: 'A'   },
+    { label: 'Voltage (AC)',  value: fmt1(d.voltage_v),       unit: 'V'   },
+    { label: 'Frequency',     value: fmt1(d.freq_hz),         unit: 'Hz'  },
+    { label: 'MPPT1 Power',   value: fmt1(d.power_mppt1_kw),  unit: 'kW'  },
+    { label: 'MPPT1 Voltage', value: fmt1(d.voltage_mppt1_v), unit: 'V'   },
+    { label: 'MPPT1 Current', value: fmt1(d.current_mppt1_a), unit: 'A'   },
+    { label: 'Temperature',   value: fmt1(d.temp_c),          unit: '°C'  },
+    { label: 'Lifetime',      value: fmt1(d.lifetime_kwh),    unit: 'kWh' },
   ];
   return `<tr class="detail-row"><td colspan="6"><div class="detail-grid">${
     fields.map(f => `<div class="detail-item">
       <span class="detail-label">${f.label}</span>
-      <span class="detail-value">${f.value}</span>
-      ${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}
+      <span class="detail-value">${f.value}${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}</span>
     </div>`).join('')
   }</div></td></tr>`;
 }
