@@ -26,6 +26,7 @@ if [ "$1" = "configure" ]; then
     # Enable services (but don't start them yet — user must configure first)
     systemctl daemon-reload || true
     systemctl enable pvs-monitor pvs-api pvs-ui 2>/dev/null || true
+    systemctl restart pvs-monitor pvs-api pvs-ui 2>/dev/null || true
 fi
 
 exit 0
