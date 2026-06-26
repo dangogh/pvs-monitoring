@@ -864,7 +864,7 @@ function renderPanels() {
   const sorted = [...panelsData].sort((a, b) => {
     const av = cols[sortCol](a);
     const bv = cols[sortCol](b);
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+    const cmp = typeof av === 'string' ? av.localeCompare(bv, undefined, { numeric: true }) : av - bv;
     return sortAsc ? cmp : -cmp;
   });
 
