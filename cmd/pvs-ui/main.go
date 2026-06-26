@@ -30,12 +30,13 @@ func main() {
 
 func run(args []string, ctx context.Context) error {
 	fs := flag.NewFlagSet("pvs-ui", flag.ContinueOnError)
-	var listenAddr, apiBase, tlsCert, tlsKey string
+	var listenAddr, apiBase, tlsCert, tlsKey, assetsDir string
 	var verbose bool
 	fs.StringVar(&listenAddr, "addr", ":8080", "HTTP listen address")
 	fs.StringVar(&apiBase, "api", "http://localhost:8081", "pvs-api base URL")
 	fs.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (optional)")
 	fs.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (optional)")
+	fs.StringVar(&assetsDir, "assets", "", "directory of site-specific assets (map.html, map.csv) served at /assets/")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -67,6 +68,10 @@ func run(args []string, ctx context.Context) error {
 		_, _ = w.Write(indexHTML)
 	})
 	mux.Handle("/api/", proxy)
+	if assetsDir != "" {
+		mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(assetsDir))))
+		logger.Info("serving assets", "dir", assetsDir)
+	}
 
 	httpSrv := &http.Server{Addr: listenAddr, Handler: mux}
 	go func() {
