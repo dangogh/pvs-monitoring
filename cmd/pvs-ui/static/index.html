@@ -500,9 +500,11 @@
       <table id="panels-table" aria-label="Panel inverter readings">
         <thead>
           <tr>
-            <th scope="col" data-col="serial"       aria-sort="ascending">Serial</th>
-            <th scope="col" data-col="state"                              >State</th>
-            <th scope="col" data-col="power_kw"                          >Power (kW)</th>
+            <th scope="col" data-col="label"        aria-sort="ascending">Label</th>
+            <th scope="col" data-col="state"        style="max-width:6rem">State</th>
+            <th scope="col" data-col="serial"                             >Serial</th>
+            <th scope="col" data-col="power_kw"                          >kW</th>
+            <th scope="col" data-col="today_kwh"                         >Today (kWh)</th>
             <th scope="col" data-col="lifetime_kwh"                      >Lifetime (kWh)</th>
             <th scope="col" data-col="voltage_v"                         >Voltage (V)</th>
             <th scope="col" data-col="temp_c"                            >Temp (°C)</th>
@@ -786,7 +788,7 @@ async function refreshCurrent() {
 
 // ── Panels table ──────────────────────────────────────────────
 let panelsData      = [];
-let sortCol         = 'serial';
+let sortCol         = 'label';
 let sortAsc         = true;
 let expandedSerials = new Set();
 
@@ -804,9 +806,11 @@ async function loadPanels() {
 
 function renderPanels() {
   const cols = {
+    label:        d => serialToLabel[d.serial] || '',
     serial:       d => d.serial,
     state:        d => d.state_descr,
     power_kw:     d => d.power_kw,
+    today_kwh:    d => d.today_kwh,
     lifetime_kwh: d => d.lifetime_kwh,
     voltage_v:    d => d.voltage_v,
     temp_c:       d => d.temp_c,
@@ -826,11 +830,14 @@ function renderPanels() {
                      : d.state === 'error'   ? 'state-error'
                      : 'state-other';
     const expanded = expandedSerials.has(d.serial);
+    const label = serialToLabel[d.serial] || '—';
     rows.push(`<tr class="panel-row${expanded ? ' expanded' : ''}" data-serial="${d.serial}" tabindex="0" aria-expanded="${expanded}">
+      <td>${label}</td>
+      <td class="${stateClass}" style="max-width:6rem;overflow:hidden;text-overflow:ellipsis">${d.state_descr}</td>
       <td>${d.serial}</td>
-      <td class="${stateClass}">${d.state_descr}</td>
-      <td>${fmt2(d.power_kw)}</td>
-      <td>${fmt2(d.lifetime_kwh)}</td>
+      <td>${fmt1(d.power_kw)}</td>
+      <td>${fmt1(d.today_kwh)}</td>
+      <td>${fmt1(d.lifetime_kwh)}</td>
       <td>${fmt1(d.voltage_v)}</td>
       <td>${fmt1(d.temp_c)}</td>
     </tr>`);
@@ -860,7 +867,7 @@ function detailRow(d) {
     { label: 'Temperature',   value: fmt1(d.temp_c),          unit: '°C'  },
     { label: 'Lifetime',      value: fmt1(d.lifetime_kwh),    unit: 'kWh' },
   ];
-  return `<tr class="detail-row"><td colspan="6"><div class="detail-grid">${
+  return `<tr class="detail-row"><td colspan="8"><div class="detail-grid">${
     fields.map(f => `<div class="detail-item">
       <span class="detail-label">${f.label}</span>
       <span class="detail-value">${f.value}${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}</span>
@@ -896,6 +903,7 @@ document.querySelectorAll('#panels-table thead th').forEach(th => {
 // ── Map ───────────────────────────────────────────────────────
 let mapLoaded = false;
 let positionToSerial = {}; // e.g. { 'C2': 'E001...' }
+let serialToLabel    = {}; // e.g. { 'E001...': 'C2' }
 
 function normalisePosition(pos) {
   // 'C02' → 'C2', 'B20' → 'B20'
@@ -919,7 +927,7 @@ async function initMap() {
       if (parts.length >= 2) {
         const pos = normalisePosition(parts[0].trim());
         const serial = parts[1].trim();
-        if (pos && serial) positionToSerial[pos] = serial;
+        if (pos && serial) { positionToSerial[pos] = serial; serialToLabel[serial] = pos; }
       }
     });
 
