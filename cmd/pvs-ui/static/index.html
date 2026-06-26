@@ -235,7 +235,32 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       overflow: auto;
+      position: relative;
     }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(30,41,59,0.7);
+      border-radius: var(--radius);
+      z-index: 10;
+    }
+
+    .spinner {
+      width: 1.5rem;
+      height: 1.5rem;
+      border: 2px solid var(--border);
+      border-top-color: var(--solar);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #map-layout { position: relative; }
 
     #panels-table {
       width: 100%;
@@ -322,6 +347,14 @@
     }
 
     /* ── Map tab ─────────────────────────────────────────────── */
+    #map-container { background: var(--bg); border-radius: var(--radius); padding: 1rem; }
+    #map-container h1     { color: var(--text); }
+    #map-container .label { color: var(--muted); }
+    #map-container .panel {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
     #map-layout {
       display: flex;
       gap: 1.25rem;
@@ -793,14 +826,26 @@ let sortAsc         = true;
 let expandedSerials = new Set();
 
 async function loadPanels() {
+  const container = document.getElementById('panels-container');
+  const firstLoad = panelsData.length === 0;
+  let overlay;
+  if (firstLoad) {
+    overlay = document.createElement('div');
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML = '<div class="spinner"></div>';
+    container.appendChild(overlay);
+  }
   try {
     const resp = await fetch(API_BASE + '/api/devices');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     panelsData = await resp.json();
     renderPanels();
   } catch (e) {
-    document.getElementById('panels-tbody').innerHTML =
-      '<tr><td colspan="6" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
+    if (firstLoad)
+      document.getElementById('panels-tbody').innerHTML =
+        '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
+  } finally {
+    overlay?.remove();
   }
 }
 
@@ -931,7 +976,16 @@ async function initMap() {
       }
     });
 
-    document.getElementById('map-container').innerHTML = mapHtml;
+    const mapDoc = new DOMParser().parseFromString(mapHtml, 'text/html');
+    let css = '';
+    mapDoc.querySelectorAll('style').forEach(s => css += s.textContent);
+    css = css.replace(/\bbody\b/g, '#map-container');
+    const container = document.getElementById('map-container');
+    container.innerHTML = '';
+    const styleEl = document.createElement('style');
+    styleEl.textContent = css;
+    container.appendChild(styleEl);
+    container.insertAdjacentHTML('beforeend', mapDoc.body.innerHTML);
     document.getElementById('btn-map').style.display = '';
     mapLoaded = true;
   } catch (_) {}
@@ -939,11 +993,19 @@ async function initMap() {
 
 async function loadMap() {
   if (!mapLoaded) return;
-  // Ensure device data is fresh
+  const firstLoad = panelsData.length === 0;
+  let overlay;
+  if (firstLoad) {
+    overlay = document.createElement('div');
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML = '<div class="spinner"></div>';
+    document.getElementById('map-layout').appendChild(overlay);
+  }
   try {
     const resp = await fetch(API_BASE + '/api/devices');
     if (resp.ok) panelsData = await resp.json();
   } catch (_) {}
+  finally { overlay?.remove(); }
   const devices = Object.fromEntries(panelsData.map(d => [d.serial, d]));
 
   document.querySelectorAll('#map-container .panel').forEach(el => {
