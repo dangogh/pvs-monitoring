@@ -430,7 +430,7 @@ func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.En
 	row := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0),
 		        COALESCE(MAX(load_kwh)-MIN(load_kwh), 0),
-		        COALESCE(MAX(net_kwh)-MIN(net_kwh), 0)
+		        COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0) - COALESCE(MAX(load_kwh)-MIN(load_kwh), 0)
 		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
 		since.Unix(), until.Unix(),
 	)
