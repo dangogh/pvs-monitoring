@@ -343,7 +343,7 @@
     #map-container .panel.selected       { outline: 2px solid var(--solar); }
 
     #map-detail {
-      flex: 0 0 260px;
+      flex: 0 0 300px;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -379,7 +379,7 @@
     }
 
     .map-detail-section .detail-grid {
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
       gap: 0.4rem 0.75rem;
     }
 
