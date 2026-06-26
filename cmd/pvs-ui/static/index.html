@@ -909,15 +909,17 @@ function renderPanels() {
   if (n > 0) {
     const sum = (fn) => panelsData.reduce((acc, d) => acc + fn(d), 0);
     const avg = (fn) => sum(fn) / n;
+    const ftd = (label, val) =>
+      `<td><span style="color:var(--muted);font-weight:400;margin-right:0.3em;font-size:0.72rem">${label}</span>${val}</td>`;
     document.getElementById('panels-tfoot').innerHTML = `<tr>
-      <td>Σ / x̄</td>
+      <td>${n} panels</td>
       <td></td>
       <td></td>
-      <td>${fmt1(sum(d => d.power_kw))}</td>
-      <td>${fmt1(sum(d => d.today_kwh))}</td>
-      <td>${fmt1(sum(d => d.lifetime_kwh))}</td>
-      <td>${fmt1(avg(d => d.voltage_v))}</td>
-      <td>${fmt1(avg(d => d.temp_c))}</td>
+      ${ftd('total', fmt1(sum(d => d.power_kw)))}
+      ${ftd('total', fmt1(sum(d => d.today_kwh)))}
+      ${ftd('total', fmt1(sum(d => d.lifetime_kwh)))}
+      ${ftd('avg', fmt1(avg(d => d.voltage_v)))}
+      ${ftd('avg', fmt1(avg(d => d.temp_c)))}
     </tr>`;
   }
 
