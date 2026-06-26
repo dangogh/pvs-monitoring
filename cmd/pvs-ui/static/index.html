@@ -297,6 +297,19 @@
 
     #panels-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
     #panels-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
+    #panels-table tfoot td {
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.5rem 0.75rem;
+      text-align: right;
+      white-space: nowrap;
+      position: sticky;
+      bottom: 0;
+    }
+    #panels-table tfoot td:first-child { text-align: left; }
 
     .state-working { color: var(--export); }
     .state-error   { color: var(--import); }
@@ -544,6 +557,7 @@
           </tr>
         </thead>
         <tbody id="panels-tbody"></tbody>
+        <tfoot id="panels-tfoot"></tfoot>
       </table>
     </div>
   </div><!-- /tab-panels -->
@@ -889,6 +903,23 @@ function renderPanels() {
     if (expanded) rows.push(detailRow(d));
   });
   tbody.innerHTML = rows.join('');
+
+  // Summary row
+  const n = panelsData.length;
+  if (n > 0) {
+    const sum = (fn) => panelsData.reduce((acc, d) => acc + fn(d), 0);
+    const avg = (fn) => sum(fn) / n;
+    document.getElementById('panels-tfoot').innerHTML = `<tr>
+      <td>Σ / x̄</td>
+      <td></td>
+      <td></td>
+      <td>${fmt1(sum(d => d.power_kw))}</td>
+      <td>${fmt1(sum(d => d.today_kwh))}</td>
+      <td>${fmt1(sum(d => d.lifetime_kwh))}</td>
+      <td>${fmt1(avg(d => d.voltage_v))}</td>
+      <td>${fmt1(avg(d => d.temp_c))}</td>
+    </tr>`;
+  }
 
   tbody.querySelectorAll('tr.panel-row').forEach(tr => {
     tr.addEventListener('click', () => togglePanel(tr.dataset.serial));
