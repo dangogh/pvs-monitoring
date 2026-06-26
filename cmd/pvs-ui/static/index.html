@@ -321,6 +321,68 @@
       margin-left: 0.2em;
     }
 
+    /* ── Map tab ─────────────────────────────────────────────── */
+    #map-layout {
+      display: flex;
+      gap: 1.25rem;
+      align-items: flex-start;
+    }
+
+    #map-container {
+      overflow: auto;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    #map-container .panel { cursor: pointer; transition: opacity 0.15s; }
+    #map-container .panel.state-working  { background: #166534; color: #bbf7d0; }
+    #map-container .panel.state-error    { background: #7f1d1d; color: #fecaca; }
+    #map-container .panel.state-other    { background: #374151; color: #9ca3af; }
+    #map-container .panel.state-unknown  { background: #1e293b; color: #475569; }
+    #map-container .panel:hover          { opacity: 0.75; }
+    #map-container .panel.selected       { outline: 2px solid var(--solar); }
+
+    #map-detail {
+      flex: 0 0 260px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      display: none;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    #map-detail.visible { display: flex; }
+
+    #map-detail-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+
+    .map-detail-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .map-detail-section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.2rem;
+      margin-bottom: 0.1rem;
+    }
+
+    .map-detail-section .detail-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 0.4rem 0.75rem;
+    }
+
     /* ── Status bar ──────────────────────────────────────────── */
     #status {
       text-align: center;
@@ -349,6 +411,7 @@
   <div class="tab-bar" role="tablist" aria-label="Views">
     <button class="tab-btn" role="tab" aria-selected="true"  aria-controls="tab-overview" id="btn-overview">Overview</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panels"   id="btn-panels">Panels</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
   </div>
 
   <!-- Overview tab -->
@@ -450,6 +513,17 @@
     </div>
   </div><!-- /tab-panels -->
 
+  <!-- Map tab -->
+  <div id="tab-map" class="tab-panel" role="tabpanel" aria-labelledby="btn-map">
+    <div id="map-layout">
+      <div id="map-container"></div>
+      <div id="map-detail" aria-live="polite">
+        <div id="map-detail-title"></div>
+        <div class="detail-grid" id="map-detail-grid"></div>
+      </div>
+    </div>
+  </div><!-- /tab-map -->
+
   <p id="status" aria-live="polite"></p>
 
 </main>
@@ -485,6 +559,7 @@ function switchTab(id) {
   });
   tabPanels.forEach(p => p.classList.toggle('active', p.id === id));
   if (id === 'tab-panels') loadPanels();
+  if (id === 'tab-map')    loadMap();
 }
 
 tabBtns.forEach(btn => btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls'))));
@@ -775,6 +850,7 @@ function detailRow(d) {
   const fields = [
     { label: 'State',         value: d.state_descr,          unit: ''    },
     { label: 'Power',         value: fmt1(d.power_kw),        unit: 'kW'  },
+    { label: 'Today',         value: fmt1(d.today_kwh),       unit: 'kWh' },
     { label: 'Current',       value: fmt1(d.current_a),       unit: 'A'   },
     { label: 'Voltage (AC)',  value: fmt1(d.voltage_v),       unit: 'V'   },
     { label: 'Frequency',     value: fmt1(d.freq_hz),         unit: 'Hz'  },
@@ -817,6 +893,120 @@ document.querySelectorAll('#panels-table thead th').forEach(th => {
   });
 });
 
+// ── Map ───────────────────────────────────────────────────────
+let mapLoaded = false;
+let positionToSerial = {}; // e.g. { 'C2': 'E001...' }
+
+function normalisePosition(pos) {
+  // 'C02' → 'C2', 'B20' → 'B20'
+  return pos.replace(/^([A-Za-z]+)0*(\d+)$/, (_, l, n) => l.toUpperCase() + parseInt(n, 10));
+}
+
+async function initMap() {
+  try {
+    const [mapResp, csvResp] = await Promise.all([
+      fetch(API_BASE + '/assets/map.html'),
+      fetch(API_BASE + '/assets/map.csv'),
+    ]);
+    if (!mapResp.ok || !csvResp.ok) return;
+
+    const mapHtml = await mapResp.text();
+    const csvText = await csvResp.text();
+
+    // Parse CSV: Position,Serial (skip header, ignore extra columns)
+    csvText.split('\n').slice(1).forEach(line => {
+      const parts = line.split(',');
+      if (parts.length >= 2) {
+        const pos = normalisePosition(parts[0].trim());
+        const serial = parts[1].trim();
+        if (pos && serial) positionToSerial[pos] = serial;
+      }
+    });
+
+    document.getElementById('map-container').innerHTML = mapHtml;
+    document.getElementById('btn-map').style.display = '';
+    mapLoaded = true;
+  } catch (_) {}
+}
+
+async function loadMap() {
+  if (!mapLoaded) return;
+  // Ensure device data is fresh
+  try {
+    const resp = await fetch(API_BASE + '/api/devices');
+    if (resp.ok) panelsData = await resp.json();
+  } catch (_) {}
+  const devices = Object.fromEntries(panelsData.map(d => [d.serial, d]));
+
+  document.querySelectorAll('#map-container .panel').forEach(el => {
+    const label = el.textContent.trim();
+    const pos   = normalisePosition(label);
+    const serial = positionToSerial[pos];
+    const dev    = serial ? devices[serial] : null;
+
+    el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
+    if (!dev) {
+      el.classList.add('state-unknown');
+      el.title = label + ': no data';
+    } else {
+      el.classList.add(dev.state === 'working' ? 'state-working'
+                     : dev.state === 'error'   ? 'state-error'
+                     : 'state-other');
+      el.title = label + ' · ' + dev.state_descr + ' · ' + fmt1(dev.power_kw) + ' kW';
+    }
+
+    el.onclick = () => showMapDetail(el, serial, dev, label);
+  });
+}
+
+function detailField(label, value, unit) {
+  return `<div class="detail-item">
+    <span class="detail-label">${label}</span>
+    <span class="detail-value">${value}${unit ? `<span class="detail-unit">${unit}</span>` : ''}</span>
+  </div>`;
+}
+
+function detailSection(label, fields) {
+  return `<div class="map-detail-section">
+    <div class="map-detail-section-label">${label}</div>
+    <div class="detail-grid">${fields.map(f => detailField(f.label, f.value, f.unit)).join('')}</div>
+  </div>`;
+}
+
+function showMapDetail(el, serial, dev, label) {
+  document.querySelectorAll('#map-container .panel.selected').forEach(p => p.classList.remove('selected'));
+  el.classList.add('selected');
+
+  document.getElementById('map-detail-title').textContent = label + (serial ? ' · ' + serial.slice(-6) : '');
+
+  if (!dev) {
+    document.getElementById('map-detail-grid').innerHTML =
+      '<div class="detail-item"><span class="detail-label">Status</span><span class="detail-value">No data</span></div>';
+  } else {
+    document.getElementById('map-detail-grid').innerHTML = [
+      detailSection('AC Output', [
+        { label: 'Power',    value: fmt1(dev.power_kw),   unit: 'kW'  },
+        { label: 'Today',    value: fmt1(dev.today_kwh),  unit: 'kWh' },
+        { label: 'Current',  value: fmt1(dev.current_a),  unit: 'A'   },
+        { label: 'Voltage',  value: fmt1(dev.voltage_v),  unit: 'V'   },
+        { label: 'Freq',     value: fmt1(dev.freq_hz),    unit: 'Hz'  },
+      ]),
+      detailSection('DC Input', [
+        { label: 'Power',    value: fmt1(dev.power_mppt1_kw),   unit: 'kW' },
+        { label: 'Voltage',  value: fmt1(dev.voltage_mppt1_v),  unit: 'V'  },
+        { label: 'Current',  value: fmt1(dev.current_mppt1_a),  unit: 'A'  },
+      ]),
+      detailSection('Info', [
+        { label: 'State',    value: dev.state_descr,        unit: ''    },
+        { label: 'Temp',     value: fmt1(dev.temp_c),        unit: '°C'  },
+        { label: 'Lifetime', value: fmt1(dev.lifetime_kwh),  unit: 'kWh' },
+      ]),
+    ].join('');
+  }
+
+  document.getElementById('map-detail').classList.add('visible');
+}
+
 // ── Range select ──────────────────────────────────────────────
 const rangeSelect   = document.getElementById('range-select');
 const customRow     = document.getElementById('custom-range');
@@ -853,6 +1043,7 @@ applyBtn.addEventListener('click', () => {
     API_BASE = (cfg.api_base || '').replace(/\/$/, '');
   } catch (_) {}
   loadRange('today');
+  initMap();
   setInterval(refreshCurrent, 5000);
 })();
 </script>

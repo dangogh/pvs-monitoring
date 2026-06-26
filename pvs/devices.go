@@ -22,6 +22,7 @@ type InverterDevice struct {
 	CurrentMPPT1A float64   `json:"current_mppt1_a"`
 	TempC         float64   `json:"temp_c"`
 	FreqHz        float64   `json:"freq_hz"`
+	TodayKWh      float64   `json:"today_kwh"`
 }
 
 // AuxDevice holds a raw reading for non-inverter devices (PVS, Power Meter).

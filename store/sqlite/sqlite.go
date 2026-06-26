@@ -484,14 +484,19 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 }
 
 func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, error) {
+	midnight := time.Now().Truncate(24 * time.Hour).Unix()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT ir.serial, ir.state, ir.state_descr, ir.received_at, ir.power_kw, ir.lifetime_kwh,
 		        ir.voltage_v, ir.current_a, ir.power_mppt1_kw, ir.voltage_mppt1_v, ir.current_mppt1_a,
-		        ir.temp_c, ir.freq_hz
+		        ir.temp_c, ir.freq_hz,
+		        COALESCE(today.today_kwh, 0)
 		 FROM inverter_readings ir
 		 INNER JOIN (SELECT serial, MAX(received_at) AS max_ra FROM inverter_readings GROUP BY serial) latest
 		         ON ir.serial = latest.serial AND ir.received_at = latest.max_ra
-		 ORDER BY ir.serial`)
+		 LEFT JOIN (SELECT serial, MAX(lifetime_kwh) - MIN(lifetime_kwh) AS today_kwh
+		            FROM inverter_readings WHERE received_at >= ? GROUP BY serial) today
+		        ON ir.serial = today.serial
+		 ORDER BY ir.serial`, midnight)
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
 	}
@@ -504,7 +509,7 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 			&d.Serial, &d.State, &d.StateDescr, &receivedAt,
 			&d.PowerKW, &d.LifetimeKWh, &d.VoltageV, &d.CurrentA,
 			&d.PowerMPPT1KW, &d.VoltageMPPT1V, &d.CurrentMPPT1A,
-			&d.TempC, &d.FreqHz,
+			&d.TempC, &d.FreqHz, &d.TodayKWh,
 		); err != nil {
 			return nil, fmt.Errorf("scan inverter: %w", err)
 		}

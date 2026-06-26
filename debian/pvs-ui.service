@@ -3,7 +3,7 @@ Description=PVS6 solar dashboard UI
 After=pvs-api.service
 
 [Service]
-ExecStart=/usr/bin/pvs-ui -api https://localhost:8081
+ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
