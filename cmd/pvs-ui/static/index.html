@@ -835,27 +835,37 @@ async function refreshCurrent() {
 
 // ── Panels table ──────────────────────────────────────────────
 let panelsData      = [];
+let panelsFetchedAt = 0;
+const PANELS_TTL_MS = 30_000;
 let sortCol         = 'label';
 let sortAsc         = true;
 let expandedSerials = new Set();
 
+async function fetchDevices() {
+  const resp = await fetch(API_BASE + '/api/devices');
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  panelsData = await resp.json();
+  panelsFetchedAt = Date.now();
+}
+
 async function loadPanels() {
+  const stale = panelsData.length === 0 || Date.now() - panelsFetchedAt > PANELS_TTL_MS;
+  if (panelsData.length > 0) renderPanels(); // render immediately from cache
+  if (!stale) return;
+
   const container = document.getElementById('panels-container');
-  const firstLoad = panelsData.length === 0;
   let overlay;
-  if (firstLoad) {
+  if (panelsData.length === 0) {
     overlay = document.createElement('div');
     overlay.className = 'loading-overlay';
     overlay.innerHTML = '<div class="spinner"></div>';
     container.appendChild(overlay);
   }
   try {
-    const resp = await fetch(API_BASE + '/api/devices');
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    panelsData = await resp.json();
+    await fetchDevices();
     renderPanels();
   } catch (e) {
-    if (firstLoad)
+    if (panelsData.length === 0)
       document.getElementById('panels-tbody').innerHTML =
         '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
   } finally {
@@ -1026,17 +1036,16 @@ async function initMap() {
 
 async function loadMap() {
   if (!mapLoaded) return;
-  const firstLoad = panelsData.length === 0;
+  const stale = panelsData.length === 0 || Date.now() - panelsFetchedAt > PANELS_TTL_MS;
   let overlay;
-  if (firstLoad) {
+  if (panelsData.length === 0) {
     overlay = document.createElement('div');
     overlay.className = 'loading-overlay';
     overlay.innerHTML = '<div class="spinner"></div>';
     document.getElementById('map-layout').appendChild(overlay);
   }
   try {
-    const resp = await fetch(API_BASE + '/api/devices');
-    if (resp.ok) panelsData = await resp.json();
+    if (stale) await fetchDevices();
   } catch (_) {}
   finally { overlay?.remove(); }
   const devices = Object.fromEntries(panelsData.map(d => [d.serial, d]));
@@ -1147,6 +1156,7 @@ applyBtn.addEventListener('click', () => {
   } catch (_) {}
   loadRange('today');
   initMap();
+  fetchDevices().catch(() => {});
   setInterval(refreshCurrent, 5000);
 })();
 </script>
