@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```sh
 make fmt      # goimports -local github.com/dangogh -w .
-make build    # produces bin/pvs-monitor and bin/pvs-mcp
+make build    # produces bin/pvs-monitor, bin/pvs-mcp, bin/pvs-api, bin/pvs-ui
 make test     # go test -race -coverprofile=coverage.out ./... + total coverage
 make lint     # golangci-lint run
 make cover    # open coverage HTML in browser (runs test first)
@@ -19,7 +19,7 @@ go test -race -run TestName ./pvs/
 
 ## Architecture
 
-Two binaries with a shared SQLite database as the interface between them:
+Four binaries sharing a SQLite database:
 
 ```
 pvs-monitor (daemon)           pvs-mcp (MCP server)
@@ -28,9 +28,16 @@ PVS6 WebSocket                 SQLite reads only
 → pvs.Monitor                  → pvs.Store (read methods)
 → pvs.DevicePoller             → MCP tools (stdio)
 → SQLite writes
+
+pvs-api (HTTP server)          pvs-ui (web UI)
+─────────────────────          ───────────────
+SQLite reads only              embeds static/index.html
+→ GET /api/current             reverse-proxies /api/ → pvs-api
+→ GET /api/data
+→ GET /api/devices
 ```
 
-`pvs-monitor` runs as a long-lived daemon. `pvs-mcp` is spawned on demand by Claude Desktop and exits when the MCP stdio session ends. They share the same SQLite database file; WAL mode allows concurrent access.
+`pvs-monitor` runs as a long-lived daemon. `pvs-mcp` is spawned on demand by Claude Desktop and exits when the MCP stdio session ends. `pvs-api` is an HTTP REST server; `pvs-ui` serves the embedded SPA and proxies API requests to `pvs-api`. All four share the same SQLite database file; WAL mode allows concurrent access.
 
 ### Packages
 
@@ -43,6 +50,10 @@ PVS6 WebSocket                 SQLite reads only
 - **`cmd/pvs-monitor`** — daemon entrypoint. Wires config → store → monitor → optional poller. Blocks until SIGINT/SIGTERM.
 
 - **`cmd/pvs-mcp`** — MCP server entrypoint. Opens SQLite read-only, registers tools, runs stdio transport. The `StdioTransport` owns the process lifetime.
+
+- **`cmd/pvs-api`** — HTTP REST server. Reads from SQLite and exposes `/api/current`, `/api/data`, and `/api/devices` with CORS headers.
+
+- **`cmd/pvs-ui`** — Serves an embedded `static/index.html` and reverse-proxies `/api/` to `pvs-api`.
 
 ### Key design points
 
