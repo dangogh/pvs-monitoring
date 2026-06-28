@@ -601,7 +601,10 @@ function fmtKWh(n){ return n == null ? '—' : n.toFixed(2); }
 const tabBtns   = document.querySelectorAll('.tab-btn');
 const tabPanels = document.querySelectorAll('.tab-panel');
 
+let activeTab = 'tab-overview';
+
 function switchTab(id) {
+  activeTab = id;
   tabBtns.forEach(b => {
     const active = b.getAttribute('aria-controls') === id;
     b.setAttribute('aria-selected', active);
@@ -836,7 +839,8 @@ async function refreshCurrent() {
 // ── Panels table ──────────────────────────────────────────────
 let panelsData      = [];
 let panelsFetchedAt = 0;
-const PANELS_TTL_MS = 30_000;
+const DEVICES_REFRESH_MS = 30_000;
+const PANELS_TTL_MS      = DEVICES_REFRESH_MS;
 let sortCol         = 'label';
 let sortAsc         = true;
 let expandedSerials = new Set();
@@ -1158,6 +1162,17 @@ applyBtn.addEventListener('click', () => {
   initMap();
   fetchDevices().catch(() => {});
   setInterval(refreshCurrent, 5000);
+  setInterval(() => {
+    if (activeTab === 'tab-overview') {
+      loadRange(currentRange);
+    } else if (activeTab === 'tab-panels') {
+      panelsFetchedAt = 0; // force stale so loadPanels re-fetches
+      loadPanels();
+    } else if (activeTab === 'tab-map') {
+      panelsFetchedAt = 0;
+      loadMap();
+    }
+  }, DEVICES_REFRESH_MS);
 })();
 </script>
 
