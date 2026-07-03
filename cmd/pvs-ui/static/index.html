@@ -799,7 +799,9 @@ function buildChartOptions(series, rangeLabel, since, until) {
   };
 }
 
-function renderChart(series, rangeLabel, since, until) {
+let chartRangeName = null;
+
+function renderChart(series, rangeLabel, since, until, rangeName) {
   const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
@@ -807,14 +809,25 @@ function renderChart(series, rangeLabel, since, until) {
     chartEl.style.display = 'none';
     noData.style.display  = 'flex';
     if (chart) { chart.destroy(); chart = null; }
+    chartRangeName = null;
     return;
   }
 
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
+  if (chart && rangeName && rangeName === chartRangeName) {
+    const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
+    const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
+    chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
+    chart.series[0].setData(solar, false, { duration: 400 });
+    chart.series[1].setData(load,  true,  { duration: 400 });
+    return;
+  }
+
   if (chart) { try { chart.destroy(); } catch (_) {} chart = null; }
   chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
+  chartRangeName = rangeName || null;
 }
 
 // ── API base ──────────────────────────────────────────────────
@@ -872,7 +885,7 @@ async function loadRange(name, customSince, customUntil) {
     updateCurrent(data.current);
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
-    renderChart(data.series, label, chartSince, until);
+    renderChart(data.series, label, chartSince, until, name);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
   }
