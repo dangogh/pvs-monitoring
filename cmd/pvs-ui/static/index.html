@@ -84,6 +84,39 @@
     .tab-panel { display: none; flex-direction: column; gap: 1.25rem; }
     .tab-panel.active { display: flex; }
 
+    /* ── Section headings ───────────────────────────────────── */
+    .section-heading {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--export);
+      flex-shrink: 0;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .pulse-dot.stale {
+      background: var(--muted);
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    #now-timestamp { font-variant-numeric: tabular-nums; }
+
     /* ── Current power cards ─────────────────────────────────── */
     .current-stats {
       display: grid;
@@ -224,6 +257,8 @@
       flex-direction: column;
       gap: 0.2rem;
     }
+
+    #period-label { font-variant-numeric: tabular-nums; }
 
     .summary-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
     .summary-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -463,6 +498,11 @@
   <!-- Overview tab -->
   <div id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="btn-overview">
 
+    <div class="section-heading">
+      <span class="pulse-dot" id="now-dot"></span>
+      <span>Now</span>
+      <span id="now-timestamp"></span>
+    </div>
     <section aria-label="Current power readings" aria-live="polite" aria-atomic="true" class="current-stats">
       <div class="stat-card production" role="group" aria-label="Solar production">
         <span class="stat-label">Production</span>
@@ -484,6 +524,32 @@
           <span class="stat-value" id="net-kw">—</span>
           <span class="stat-unit">kW</span>
         </div>
+      </div>
+    </section>
+
+    <div class="section-heading">
+      <span id="period-label">Period</span>
+    </div>
+    <section aria-label="Period summary" class="summary-cards">
+      <div class="summary-card" role="group" aria-label="Energy produced">
+        <span class="summary-label">Produced</span>
+        <span class="summary-value" id="sum-solar">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Energy consumed">
+        <span class="summary-label">Consumed</span>
+        <span class="summary-value" id="sum-load">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Net energy">
+        <span class="summary-label">Net</span>
+        <span class="summary-value" id="sum-net">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Average production">
+        <span class="summary-label">Avg Production</span>
+        <span class="summary-value" id="sum-avg">—</span>
+        <span class="summary-unit">kW</span>
       </div>
     </section>
 
@@ -513,29 +579,6 @@
     <section aria-label="Power chart" id="chart-container">
       <div id="chart"></div>
       <div id="no-data" role="status">No data for this period.</div>
-    </section>
-
-    <section aria-label="Period summary" class="summary-cards">
-      <div class="summary-card" role="group" aria-label="Energy produced">
-        <span class="summary-label">Produced</span>
-        <span class="summary-value" id="sum-solar">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Energy consumed">
-        <span class="summary-label">Consumed</span>
-        <span class="summary-value" id="sum-load">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Net energy">
-        <span class="summary-label">Net</span>
-        <span class="summary-value" id="sum-net">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Average production">
-        <span class="summary-label">Avg Production</span>
-        <span class="summary-value" id="sum-avg">—</span>
-        <span class="summary-unit">kW</span>
-      </div>
     </section>
 
   </div><!-- /tab-overview -->
@@ -635,7 +678,13 @@ function updateCurrent(c) {
   cardEl.className    = 'stat-card ' + (exporting ? 'net-export' : 'net-import');
   cardEl.setAttribute('aria-label', (exporting ? 'Exporting to grid: ' : 'Importing from grid: ') + fmt1(Math.abs(netKW)) + ' kilowatts');
 
-  const age = Math.round((Date.now() - new Date(c.updated_at).getTime()) / 1000);
+  const updatedAt = new Date(c.updated_at);
+  const age = Math.round((Date.now() - updatedAt.getTime()) / 1000);
+  const stale = age > 120;
+  const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('now-timestamp').textContent = timeStr;
+  document.getElementById('now-dot').classList.toggle('stale', stale);
+
   let ageStr;
   if      (age < 5)     ageStr = 'just now';
   else if (age < 60)    ageStr = age + 's ago';
@@ -646,7 +695,8 @@ function updateCurrent(c) {
 }
 
 // ── Summary cards ─────────────────────────────────────────────
-function updateSummary(s) {
+function updateSummary(s, label) {
+  if (label) document.getElementById('period-label').textContent = label;
   document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
   document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
   document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
@@ -820,7 +870,7 @@ async function loadRange(name, customSince, customUntil) {
     const data = await resp.json();
 
     updateCurrent(data.current);
-    updateSummary(data.summary);
+    updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
     renderChart(data.series, label, chartSince, until);
   } catch (e) {
