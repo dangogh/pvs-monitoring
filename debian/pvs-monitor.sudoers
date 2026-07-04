@@ -1,6 +1,5 @@
-# Allow passwordless systemctl for pvs-monitoring service management only.
-# dpkg -i is intentionally excluded; it runs postinst as root and accepts
-# arbitrary packages, so it must prompt for a password.
+# Allow passwordless service management and auto-update for pvs-monitoring.
+# dpkg is scoped to the fixed temp prefix used by pvs-update.sh only.
 %sudo ALL=(ALL) NOPASSWD: \
     /usr/bin/systemctl start pvs-monitor, \
     /usr/bin/systemctl stop pvs-monitor, \
@@ -14,4 +13,5 @@
     /usr/bin/systemctl stop pvs-ui, \
     /usr/bin/systemctl restart pvs-ui, \
     /usr/bin/systemctl enable pvs-ui, \
-    /usr/bin/systemctl daemon-reload
+    /usr/bin/systemctl daemon-reload, \
+    /usr/bin/dpkg -i /tmp/pvs-update-*.deb

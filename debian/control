@@ -8,7 +8,7 @@ Build-Depends: debhelper-compat (= 13), golang-any
 
 Package: pvs-monitoring
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, curl, jq
 Description: PVS6 solar monitor with MCP integration
  Monitors a SunPower PVS6 solar gateway via WebSocket,
  persists power readings to SQLite, and exposes data

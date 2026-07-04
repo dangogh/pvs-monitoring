@@ -7,6 +7,9 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     systemctl disable pvs-monitor pvs-api pvs-ui 2>/dev/null || true
     systemctl daemon-reload || true
     
+    # Remove cron job
+    rm -f /etc/cron.d/pvs-monitoring
+
     # Clean up empty directories if purging
     if [ "$1" = "purge" ]; then
         rm -rf /var/lib/pvs-monitor /etc/pvs-monitor
