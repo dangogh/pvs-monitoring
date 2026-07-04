@@ -1,2 +1,17 @@
-# Allow passwordless dpkg and systemctl for pvs-monitoring deployment
-%sudo ALL=(ALL) NOPASSWD: /usr/bin/dpkg, /usr/bin/systemctl
+# Allow passwordless systemctl for pvs-monitoring service management only.
+# dpkg -i is intentionally excluded; it runs postinst as root and accepts
+# arbitrary packages, so it must prompt for a password.
+%sudo ALL=(ALL) NOPASSWD: \
+    /usr/bin/systemctl start pvs-monitor, \
+    /usr/bin/systemctl stop pvs-monitor, \
+    /usr/bin/systemctl restart pvs-monitor, \
+    /usr/bin/systemctl enable pvs-monitor, \
+    /usr/bin/systemctl start pvs-api, \
+    /usr/bin/systemctl stop pvs-api, \
+    /usr/bin/systemctl restart pvs-api, \
+    /usr/bin/systemctl enable pvs-api, \
+    /usr/bin/systemctl start pvs-ui, \
+    /usr/bin/systemctl stop pvs-ui, \
+    /usr/bin/systemctl restart pvs-ui, \
+    /usr/bin/systemctl enable pvs-ui, \
+    /usr/bin/systemctl daemon-reload
