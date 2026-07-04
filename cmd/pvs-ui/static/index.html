@@ -117,6 +117,21 @@
 
     #now-timestamp { font-variant-numeric: tabular-nums; }
 
+    /* ── Value update transitions ───────────────────────────── */
+    .stat-value, .summary-value {
+      transition: opacity 150ms ease;
+    }
+
+    .stat-card, .summary-card {
+      transition: border-color 600ms ease, box-shadow 600ms ease;
+    }
+
+    .card-flash {
+      border-color: var(--solar) !important;
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+      transition: none !important;
+    }
+
     /* ── Current power cards ─────────────────────────────────── */
     .current-stats {
       display: grid;
@@ -659,13 +674,31 @@ function switchTab(id) {
 
 tabBtns.forEach(btn => btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls'))));
 
+// ── Update animation helpers ──────────────────────────────────
+function setValueAnimated(el, text) {
+  el.style.opacity = '0.3';
+  setTimeout(() => { el.textContent = text; el.style.opacity = ''; }, 150);
+}
+
+function flashCard(el) {
+  el.classList.remove('card-flash');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.classList.add('card-flash');
+    setTimeout(() => el.classList.remove('card-flash'), 50);
+  }));
+}
+
 // ── Current reading ───────────────────────────────────────────
 function updateCurrent(c) {
   if (!c) return;
-  document.getElementById('solar-kw').textContent = fmt1(c.solar_kw);
-  document.getElementById('load-kw').textContent  = fmt1(c.load_kw);
-  document.querySelector('.stat-card.production').setAttribute('aria-label', 'Solar production: ' + fmt1(c.solar_kw) + ' kilowatts');
-  document.querySelector('.stat-card.usage').setAttribute('aria-label', 'Home usage: ' + fmt1(c.load_kw) + ' kilowatts');
+  const solarEl = document.getElementById('solar-kw');
+  const loadEl  = document.getElementById('load-kw');
+  const prodCard = document.querySelector('.stat-card.production');
+  const usageCard = document.querySelector('.stat-card.usage');
+  setValueAnimated(solarEl, fmt1(c.solar_kw)); flashCard(prodCard);
+  setValueAnimated(loadEl,  fmt1(c.load_kw));  flashCard(usageCard);
+  prodCard.setAttribute('aria-label', 'Solar production: ' + fmt1(c.solar_kw) + ' kilowatts');
+  usageCard.setAttribute('aria-label', 'Home usage: ' + fmt1(c.load_kw) + ' kilowatts');
 
   const netKW   = c.net_kw;
   const netEl   = document.getElementById('net-kw');
@@ -673,7 +706,7 @@ function updateCurrent(c) {
   const cardEl  = document.getElementById('net-card');
 
   const exporting = netKW <= 0;
-  netEl.textContent   = fmt1(Math.abs(netKW));
+  setValueAnimated(netEl, fmt1(Math.abs(netKW))); flashCard(cardEl);
   labelEl.textContent = exporting ? 'Exporting' : 'Importing';
   cardEl.className    = 'stat-card ' + (exporting ? 'net-export' : 'net-import');
   cardEl.setAttribute('aria-label', (exporting ? 'Exporting to grid: ' : 'Importing from grid: ') + fmt1(Math.abs(netKW)) + ' kilowatts');
@@ -697,16 +730,22 @@ function updateCurrent(c) {
 // ── Summary cards ─────────────────────────────────────────────
 function updateSummary(s, label) {
   if (label) document.getElementById('period-label').textContent = label;
-  document.getElementById('sum-solar').textContent = fmtKWh(s.solar_kwh);
-  document.getElementById('sum-load').textContent  = fmtKWh(s.load_kwh);
-  document.getElementById('sum-avg').textContent   = fmt1(s.avg_solar_kw);
-  document.getElementById('sum-solar').parentElement.setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
-  document.getElementById('sum-load').parentElement.setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
-  document.getElementById('sum-avg').parentElement.setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
 
-  const netEl = document.getElementById('sum-net');
-  const net   = s.net_kwh;
-  netEl.textContent = fmtKWh(Math.abs(net));
+  const solarEl = document.getElementById('sum-solar');
+  const loadEl  = document.getElementById('sum-load');
+  const avgEl   = document.getElementById('sum-avg');
+  const netEl   = document.getElementById('sum-net');
+
+  setValueAnimated(solarEl, fmtKWh(s.solar_kwh)); flashCard(solarEl.parentElement);
+  setValueAnimated(loadEl,  fmtKWh(s.load_kwh));  flashCard(loadEl.parentElement);
+  setValueAnimated(avgEl,   fmt1(s.avg_solar_kw)); flashCard(avgEl.parentElement);
+
+  solarEl.parentElement.setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
+  loadEl.parentElement.setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
+  avgEl.parentElement.setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
+
+  const net = s.net_kwh;
+  setValueAnimated(netEl, fmtKWh(Math.abs(net))); flashCard(netEl.parentElement);
   const netUnit = net < 0 ? 'kWh exported' : 'kWh imported';
   netEl.parentElement.querySelector('.summary-unit').textContent = netUnit;
   netEl.parentElement.setAttribute('aria-label', (net < 0 ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
