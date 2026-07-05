@@ -27,7 +27,7 @@ override_dh_auto_install:
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
 
 	# Install update script
-	install -D -m 755 pvs-update.sh $(DESTDIR)/usr/local/bin/pvs-update.sh
+	install -D -m 755 pvs-update.sh $(DESTDIR)/usr/bin/pvs-update
 
 	# Install sudoers drop-in for passwordless deployment
 	install -D -m 440 debian/pvs-monitor.sudoers $(DESTDIR)/etc/sudoers.d/pvs-monitor

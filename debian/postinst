@@ -30,7 +30,7 @@ if [ "$1" = "configure" ]; then
 
     # Install daily auto-update cron job (runs at 6am, logs to /var/log/pvs-update.log)
     CRON_FILE="/etc/cron.d/pvs-monitoring"
-    echo "0 10 * * * root /usr/local/bin/pvs-update.sh >> /var/log/pvs-update.log 2>&1" > "$CRON_FILE"
+    echo "0 10 * * * root /usr/bin/pvs-update >> /var/log/pvs-update.log 2>&1" > "$CRON_FILE"
     chmod 644 "$CRON_FILE"
 fi
 
