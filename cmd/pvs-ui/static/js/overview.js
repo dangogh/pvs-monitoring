@@ -1,11 +1,14 @@
 'use strict';
 
+import { fmt1, fmtKWh, setValueAnimated, flashCard } from './display.js';
+import { state } from './state.js';
+
 // ── Current reading ───────────────────────────────────────────
-function updateCurrent(c) {
+export function updateCurrent(c) {
   if (!c) return;
-  const solarEl = document.getElementById('solar-kw');
-  const loadEl  = document.getElementById('load-kw');
-  const prodCard = document.querySelector('.stat-card.production');
+  const solarEl   = document.getElementById('solar-kw');
+  const loadEl    = document.getElementById('load-kw');
+  const prodCard  = document.querySelector('.stat-card.production');
   const usageCard = document.querySelector('.stat-card.usage');
   setValueAnimated(solarEl, fmt1(c.solar_kw)); flashCard(prodCard);
   setValueAnimated(loadEl,  fmt1(c.load_kw));  flashCard(usageCard);
@@ -40,7 +43,7 @@ function updateCurrent(c) {
 }
 
 // ── Summary cards ─────────────────────────────────────────────
-function updateSummary(s, label) {
+export function updateSummary(s, label) {
   if (label) document.getElementById('period-label').textContent = label;
 
   const solarEl = document.getElementById('sum-solar');
@@ -64,7 +67,7 @@ function updateSummary(s, label) {
 }
 
 // ── Chart ─────────────────────────────────────────────────────
-function buildChartOptions(series, rangeLabel, since, until) {
+export function buildChartOptions(series, rangeLabel, since, until) {
   const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
   const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
 
@@ -150,39 +153,37 @@ function buildChartOptions(series, rangeLabel, since, until) {
   };
 }
 
-let chartRangeName = null;
-
-function renderChart(series, rangeLabel, since, until, rangeName) {
+export function renderChart(series, rangeLabel, since, until, rangeName) {
   const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
   if (!series || series.length === 0) {
     chartEl.style.display = 'none';
     noData.style.display  = 'flex';
-    if (chart) { chart.destroy(); chart = null; }
-    chartRangeName = null;
+    if (state.chart) { state.chart.destroy(); state.chart = null; }
+    state.chartRangeName = null;
     return;
   }
 
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
-  if (chart && rangeName && rangeName === chartRangeName) {
+  if (state.chart && rangeName && rangeName === state.chartRangeName) {
     const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
     const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
-    chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
-    chart.series[0].setData(solar, false, { duration: 400 });
-    chart.series[1].setData(load,  true,  { duration: 400 });
+    state.chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
+    state.chart.series[0].setData(solar, false, { duration: 400 });
+    state.chart.series[1].setData(load,  true,  { duration: 400 });
     return;
   }
 
-  if (chart) { try { chart.destroy(); } catch (_) {} chart = null; }
-  chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
-  chartRangeName = rangeName || null;
+  if (state.chart) { try { state.chart.destroy(); } catch (_) {} state.chart = null; }
+  state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
+  state.chartRangeName = rangeName || null;
 }
 
 // ── Range resolution ──────────────────────────────────────────
-function resolveRange(name, customSince, customUntil) {
+export function resolveRange(name, customSince, customUntil) {
   const now   = new Date();
   const y     = now.getFullYear();
   const m     = now.getMonth();
@@ -222,10 +223,10 @@ function resolveRange(name, customSince, customUntil) {
 }
 
 // ── Overview data loading ─────────────────────────────────────
-async function loadRange(name, customSince, customUntil) {
+export async function loadRange(name, customSince, customUntil) {
   const { since, until, label } = resolveRange(name, customSince, customUntil);
   try {
-    const url = API_BASE + '/api/data?since=' + since + '&until=' + until;
+    const url = state.apiBase + '/api/data?since=' + since + '&until=' + until;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
@@ -239,45 +240,47 @@ async function loadRange(name, customSince, customUntil) {
   }
 }
 
-async function refreshCurrent() {
+export async function refreshCurrent() {
   try {
-    const resp = await fetch(API_BASE + '/api/current');
+    const resp = await fetch(state.apiBase + '/api/current');
     if (!resp.ok) return;
     updateCurrent(await resp.json());
   } catch (_) {}
 }
 
 // ── Range select UI ───────────────────────────────────────────
-const rangeSelect   = document.getElementById('range-select');
-const customRow     = document.getElementById('custom-range');
-const customSinceEl = document.getElementById('custom-since');
-const customUntilEl = document.getElementById('custom-until');
-const applyBtn      = document.getElementById('apply-custom');
-
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-rangeSelect.addEventListener('change', () => {
-  const val = rangeSelect.value;
-  if (val === 'live') {
-    isLive = true;
-    customRow.classList.remove('visible');
-    loadRange('today');
-  } else if (val === 'custom') {
-    isLive = false;
-    if (!customSinceEl.value) customSinceEl.value = todayStr();
-    if (!customUntilEl.value) customUntilEl.value = todayStr();
-    customRow.classList.add('visible');
-  } else {
-    isLive = false;
-    customRow.classList.remove('visible');
-    currentRange = val;
-    loadRange(currentRange);
-  }
-});
+export function initOverview() {
+  const rangeSelect   = document.getElementById('range-select');
+  const customRow     = document.getElementById('custom-range');
+  const customSinceEl = document.getElementById('custom-since');
+  const customUntilEl = document.getElementById('custom-until');
+  const applyBtn      = document.getElementById('apply-custom');
 
-applyBtn.addEventListener('click', () => {
-  const since = customSinceEl.value;
-  const until = customUntilEl.value;
-  if (!since || !until) return;
-  loadRange('custom', since, until);
-});
+  rangeSelect.addEventListener('change', () => {
+    const val = rangeSelect.value;
+    if (val === 'live') {
+      state.isLive = true;
+      customRow.classList.remove('visible');
+      loadRange('today');
+    } else if (val === 'custom') {
+      state.isLive = false;
+      if (!customSinceEl.value) customSinceEl.value = todayStr();
+      if (!customUntilEl.value) customUntilEl.value = todayStr();
+      customRow.classList.add('visible');
+    } else {
+      state.isLive = false;
+      customRow.classList.remove('visible');
+      state.currentRange = val;
+      loadRange(state.currentRange);
+    }
+  });
+
+  applyBtn.addEventListener('click', () => {
+    const since = customSinceEl.value;
+    const until = customUntilEl.value;
+    if (!since || !until) return;
+    loadRange('custom', since, until);
+  });
+}
