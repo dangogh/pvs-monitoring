@@ -13,11 +13,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	_ "embed"
+	"embed"
+	iofs "io/fs"
 )
 
-//go:embed static/index.html
-var indexHTML []byte
+//go:embed static
+var staticFiles embed.FS
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -62,11 +63,18 @@ func run(args []string, ctx context.Context) error {
 	proxy := httputil.NewSingleHostReverseProxy(apiURL)
 	proxy.Transport = transport
 
+	staticFS, err := iofs.Sub(staticFiles, "static")
+	if err != nil {
+		return fmt.Errorf("static embed: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(indexHTML)
+		b, _ := iofs.ReadFile(staticFS, "index.html")
+		_, _ = w.Write(b)
 	})
+	mux.Handle("/js/", http.FileServer(http.FS(staticFS)))
 	mux.Handle("/api/", proxy)
 	if assetsDir != "" {
 		mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(assetsDir))))
