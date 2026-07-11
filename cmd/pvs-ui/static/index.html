@@ -571,6 +571,7 @@
     <div class="range-row">
       <label for="range-select">Time range:</label>
       <select id="range-select" aria-label="Select time range">
+        <option value="live" selected>Live</option>
         <option value="today">Today</option>
         <option value="this_week">This Week</option>
         <option value="this_month">This Month</option>
@@ -639,6 +640,7 @@
 'use strict';
 
 let chart = null;
+let isLive = true;
 let currentRange = 'today';
 
 // ── Clock ─────────────────────────────────────────────────────
@@ -1236,11 +1238,17 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 
 rangeSelect.addEventListener('change', () => {
   const val = rangeSelect.value;
-  if (val === 'custom') {
+  if (val === 'live') {
+    isLive = true;
+    customRow.classList.remove('visible');
+    loadRange('today');
+  } else if (val === 'custom') {
+    isLive = false;
     if (!customSinceEl.value) customSinceEl.value = todayStr();
     if (!customUntilEl.value) customUntilEl.value = todayStr();
     customRow.classList.add('visible');
   } else {
+    isLive = false;
     customRow.classList.remove('visible');
     currentRange = val;
     loadRange(currentRange);
@@ -1266,7 +1274,7 @@ applyBtn.addEventListener('click', () => {
   setInterval(refreshCurrent, 5000);
   setInterval(() => {
     if (activeTab === 'tab-overview') {
-      loadRange(currentRange);
+      if (isLive) loadRange('today');
     } else if (activeTab === 'tab-panels') {
       panelsFetchedAt = 0; // force stale so loadPanels re-fetches
       loadPanels();
