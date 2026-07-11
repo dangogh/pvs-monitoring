@@ -9,6 +9,8 @@ export const state = {
   isLive:          true,
   currentRange:    'today',
   activeTab:       'tab-overview',
+  lastSince:       null,
+  lastUntil:       null,
 
   // Panels
   panelsData:      [],

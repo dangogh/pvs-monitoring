@@ -222,9 +222,31 @@ export function resolveRange(name, customSince, customUntil) {
   }
 }
 
-// ── Overview data loading ─────────────────────────────────────
-export async function loadRange(name, customSince, customUntil) {
-  const { since, until, label } = resolveRange(name, customSince, customUntil);
+// ── Shift label ───────────────────────────────────────────────
+function shiftLabel(name, since, until) {
+  const s = new Date(since * 1000);
+  const u = new Date(until * 1000);
+  const fmt = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  switch (name) {
+    case 'today':
+    case 'past_24h':
+      return s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    case 'this_week':
+    case 'past_7d':
+      return fmt(s) + ' – ' + fmt(u);
+    case 'this_month':
+    case 'past_30d':
+      return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
+    case 'this_year':
+    case 'past_year':
+      return String(s.getFullYear());
+    default:
+      return fmt(s) + ' – ' + fmt(u);
+  }
+}
+
+// ── Fetch and render ──────────────────────────────────────────
+export async function fetchAndRender(since, until, label, rangeName) {
   try {
     const url = state.apiBase + '/api/data?since=' + since + '&until=' + until;
     const resp = await fetch(url);
@@ -234,10 +256,19 @@ export async function loadRange(name, customSince, customUntil) {
     updateCurrent(data.current);
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
-    renderChart(data.series, label, chartSince, until, name);
+    renderChart(data.series, label, chartSince, until, rangeName);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
   }
+}
+
+// ── Overview data loading ─────────────────────────────────────
+export async function loadRange(name, customSince, customUntil) {
+  const { since, until, label } = resolveRange(name, customSince, customUntil);
+  state.lastSince = since;
+  state.lastUntil = until;
+  updateNavButtons();
+  await fetchAndRender(since, until, label, name);
 }
 
 export async function refreshCurrent() {
@@ -246,6 +277,72 @@ export async function refreshCurrent() {
     if (!resp.ok) return;
     updateCurrent(await resp.json());
   } catch (_) {}
+}
+
+// ── Prev/next navigation ──────────────────────────────────────
+export function computeShift(name, since, until, direction) {
+  const d = direction;
+  const sinceDate = new Date(since * 1000);
+
+  switch (name) {
+    case 'today':
+    case 'past_24h':
+      return { since: since + d * 86400, until: until + d * 86400 };
+    case 'this_week':
+    case 'past_7d':
+      return { since: since + d * 7 * 86400, until: until + d * 7 * 86400 };
+    case 'this_month': {
+      const s = new Date(sinceDate);
+      s.setMonth(s.getMonth() + d);
+      const e = new Date(s);
+      e.setMonth(e.getMonth() + 1);
+      return { since: Math.floor(s / 1000), until: Math.floor(e / 1000) - 1 };
+    }
+    case 'past_30d':
+      return { since: since + d * 30 * 86400, until: until + d * 30 * 86400 };
+    case 'this_year': {
+      const s = new Date(sinceDate);
+      s.setFullYear(s.getFullYear() + d);
+      const e = new Date(s);
+      e.setFullYear(e.getFullYear() + 1);
+      return { since: Math.floor(s / 1000), until: Math.floor(e / 1000) - 1 };
+    }
+    case 'past_year':
+      return { since: since + d * 365 * 86400, until: until + d * 365 * 86400 };
+    default: {
+      const dur = until - since;
+      return { since: since + d * dur, until: until + d * dur };
+    }
+  }
+}
+
+export async function shiftRange(direction) {
+  if (state.lastSince == null || state.currentRange === 'lifetime') return;
+  const { since: newSince, until: newUntil } = computeShift(
+    state.currentRange, state.lastSince, state.lastUntil, direction
+  );
+  const now = Math.floor(Date.now() / 1000);
+  if (newSince >= now) return;
+  const clampedUntil = Math.min(newUntil, now);
+  state.lastSince = newSince;
+  state.lastUntil = clampedUntil;
+  updateNavButtons();
+  await fetchAndRender(newSince, clampedUntil, shiftLabel(state.currentRange, newSince, clampedUntil), state.currentRange);
+}
+
+// ── Nav button state ──────────────────────────────────────────
+let _prevBtn = null;
+let _nextBtn = null;
+
+export function updateNavButtons() {
+  if (!_prevBtn) return;
+  const isLifetime = state.currentRange === 'lifetime';
+  const atPresent  = state.lastUntil != null && state.lastUntil >= Math.floor(Date.now() / 1000) - 60;
+  _prevBtn.disabled = isLifetime;
+  _nextBtn.disabled = isLifetime || atPresent;
+  const hidden = state.isLive;
+  _prevBtn.hidden = hidden;
+  _nextBtn.hidden = hidden;
 }
 
 // ── Range select UI ───────────────────────────────────────────
@@ -257,18 +354,23 @@ export function initOverview() {
   const customSinceEl = document.getElementById('custom-since');
   const customUntilEl = document.getElementById('custom-until');
   const applyBtn      = document.getElementById('apply-custom');
+  _prevBtn            = document.getElementById('prev-range');
+  _nextBtn            = document.getElementById('next-range');
 
   rangeSelect.addEventListener('change', () => {
     const val = rangeSelect.value;
     if (val === 'live') {
       state.isLive = true;
       customRow.classList.remove('visible');
+      updateNavButtons();
       loadRange('today');
     } else if (val === 'custom') {
       state.isLive = false;
+      state.currentRange = 'custom';
       if (!customSinceEl.value) customSinceEl.value = todayStr();
       if (!customUntilEl.value) customUntilEl.value = todayStr();
       customRow.classList.add('visible');
+      updateNavButtons();
     } else {
       state.isLive = false;
       customRow.classList.remove('visible');
@@ -283,4 +385,9 @@ export function initOverview() {
     if (!since || !until) return;
     loadRange('custom', since, until);
   });
+
+  _prevBtn.addEventListener('click', () => shiftRange(-1));
+  _nextBtn.addEventListener('click', () => shiftRange(+1));
+
+  updateNavButtons();
 }

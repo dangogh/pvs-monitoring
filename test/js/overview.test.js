@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { resolveRange, buildChartOptions } from '../../cmd/pvs-ui/static/js/overview.js';
+import { resolveRange, buildChartOptions, computeShift } from '../../cmd/pvs-ui/static/js/overview.js';
 
 // Fix "now" so date-math tests are deterministic.
 // 2024-07-10 is a Wednesday (day-of-week 3).
@@ -120,5 +120,113 @@ describe('buildChartOptions', () => {
   it('disables exporting', () => {
     const opts = buildChartOptions(series, 'Today', 0, 1);
     expect(opts.exporting.enabled).toBe(false);
+  });
+});
+
+// ── computeShift ─────────────────────────────────────────────
+// Anchored to 2024-07-10 15:00 UTC (Wednesday).
+// since = midnight 2024-07-10 local = new Date(2024,6,10) / 1000
+const DAY = 86400;
+const WEEK = 7 * DAY;
+
+describe('computeShift — today/past_24h (1-day window)', () => {
+  const since = Math.floor(new Date(2024, 6, 10) / 1000); // midnight Jul 10
+  const until = since + DAY;
+
+  it('prev shifts back 1 day', () => {
+    const r = computeShift('today', since, until, -1);
+    expect(r.since).toBe(since - DAY);
+    expect(r.until).toBe(until - DAY);
+  });
+
+  it('next shifts forward 1 day', () => {
+    const r = computeShift('today', since, until, +1);
+    expect(r.since).toBe(since + DAY);
+    expect(r.until).toBe(until + DAY);
+  });
+
+  it('past_24h behaves identically', () => {
+    const r = computeShift('past_24h', since, until, -1);
+    expect(r.since).toBe(since - DAY);
+  });
+});
+
+describe('computeShift — this_week/past_7d (7-day window)', () => {
+  const since = Math.floor(new Date(2024, 6, 7) / 1000); // Sunday Jul 7
+  const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
+
+  it('prev shifts back 7 days', () => {
+    const r = computeShift('this_week', since, until, -1);
+    expect(r.since).toBe(since - WEEK);
+    expect(r.until).toBe(until - WEEK);
+  });
+
+  it('past_7d behaves identically', () => {
+    const r = computeShift('past_7d', since, until, -1);
+    expect(r.since).toBe(since - WEEK);
+  });
+});
+
+describe('computeShift — this_month (calendar month)', () => {
+  const since = Math.floor(new Date(2024, 6, 1) / 1000); // Jul 1
+  const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
+
+  it('prev lands on June 1', () => {
+    const r = computeShift('this_month', since, until, -1);
+    expect(r.since).toBe(Math.floor(new Date(2024, 5, 1) / 1000));
+  });
+
+  it('next lands on August 1', () => {
+    const r = computeShift('this_month', since, until, +1);
+    expect(r.since).toBe(Math.floor(new Date(2024, 7, 1) / 1000));
+  });
+
+  it('crossing year boundary: Jan → Dec previous year', () => {
+    const janSince = Math.floor(new Date(2024, 0, 1) / 1000);
+    const r = computeShift('this_month', janSince, until, -1);
+    expect(r.since).toBe(Math.floor(new Date(2023, 11, 1) / 1000));
+  });
+});
+
+describe('computeShift — this_year (calendar year)', () => {
+  const since = Math.floor(new Date(2024, 0, 1) / 1000);
+  const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
+
+  it('prev lands on 2023-01-01', () => {
+    const r = computeShift('this_year', since, until, -1);
+    expect(r.since).toBe(Math.floor(new Date(2023, 0, 1) / 1000));
+  });
+
+  it('next lands on 2025-01-01', () => {
+    const r = computeShift('this_year', since, until, +1);
+    expect(r.since).toBe(Math.floor(new Date(2025, 0, 1) / 1000));
+  });
+});
+
+describe('computeShift — past_30d', () => {
+  const since = Math.floor(new Date(2024, 6, 10, 15) / 1000) - 30 * DAY;
+  const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
+
+  it('prev shifts back 30 days', () => {
+    const r = computeShift('past_30d', since, until, -1);
+    expect(r.since).toBe(since - 30 * DAY);
+    expect(r.until).toBe(until - 30 * DAY);
+  });
+});
+
+describe('computeShift — custom/default (shift by duration)', () => {
+  const since = 1000000;
+  const until = 1000000 + 3 * DAY; // 3-day custom window
+
+  it('prev shifts back by duration', () => {
+    const r = computeShift('custom', since, until, -1);
+    expect(r.since).toBe(since - 3 * DAY);
+    expect(r.until).toBe(until - 3 * DAY);
+  });
+
+  it('next shifts forward by duration', () => {
+    const r = computeShift('custom', since, until, +1);
+    expect(r.since).toBe(since + 3 * DAY);
+    expect(r.until).toBe(until + 3 * DAY);
   });
 });
