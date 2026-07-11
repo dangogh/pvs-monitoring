@@ -14,6 +14,7 @@ build:
 test:
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | grep '^total:'
+	npm test
 
 lint:
 	golangci-lint run

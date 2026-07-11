@@ -1,33 +1,44 @@
 'use strict';
 
-let mapLoaded        = false;
-let positionToSerial = {};
-let serialToLabel    = {};
+import { fmt1 } from './display.js';
+import { state, PANELS_TTL_MS } from './state.js';
+import { fetchDevices } from './panels.js';
 
-function normalisePosition(pos) {
+export function normalisePosition(pos) {
   // 'C02' → 'C2', 'B20' → 'B20'
   return pos.replace(/^([A-Za-z]+)0*(\d+)$/, (_, l, n) => l.toUpperCase() + parseInt(n, 10));
 }
 
-async function initMap() {
+export function parseCsv(csvText) {
+  const result = { positionToSerial: {}, serialToLabel: {} };
+  csvText.split('\n').slice(1).forEach(line => {
+    const parts = line.split(',');
+    if (parts.length >= 2) {
+      const pos    = normalisePosition(parts[0].trim());
+      const serial = parts[1].trim();
+      if (pos && serial) {
+        result.positionToSerial[pos] = serial;
+        result.serialToLabel[serial] = pos;
+      }
+    }
+  });
+  return result;
+}
+
+export async function initMap() {
   try {
     const [mapResp, csvResp] = await Promise.all([
-      fetch(API_BASE + '/assets/map.html'),
-      fetch(API_BASE + '/assets/map.csv'),
+      fetch(state.apiBase + '/assets/map.html'),
+      fetch(state.apiBase + '/assets/map.csv'),
     ]);
     if (!mapResp.ok || !csvResp.ok) return;
 
     const mapHtml = await mapResp.text();
     const csvText = await csvResp.text();
 
-    csvText.split('\n').slice(1).forEach(line => {
-      const parts = line.split(',');
-      if (parts.length >= 2) {
-        const pos = normalisePosition(parts[0].trim());
-        const serial = parts[1].trim();
-        if (pos && serial) { positionToSerial[pos] = serial; serialToLabel[serial] = pos; }
-      }
-    });
+    const { positionToSerial, serialToLabel } = parseCsv(csvText);
+    Object.assign(state.positionToSerial, positionToSerial);
+    Object.assign(state.serialToLabel, serialToLabel);
 
     const mapDoc = new DOMParser().parseFromString(mapHtml, 'text/html');
     let css = '';
@@ -40,15 +51,15 @@ async function initMap() {
     container.appendChild(styleEl);
     container.insertAdjacentHTML('beforeend', mapDoc.body.innerHTML);
     document.getElementById('btn-map').style.display = '';
-    mapLoaded = true;
+    state.mapLoaded = true;
   } catch (_) {}
 }
 
-async function loadMap() {
-  if (!mapLoaded) return;
-  const stale = panelsData.length === 0 || Date.now() - panelsFetchedAt > PANELS_TTL_MS;
+export async function loadMap() {
+  if (!state.mapLoaded) return;
+  const stale = state.panelsData.length === 0 || Date.now() - state.panelsFetchedAt > PANELS_TTL_MS;
   let overlay;
-  if (panelsData.length === 0) {
+  if (state.panelsData.length === 0) {
     overlay = document.createElement('div');
     overlay.className = 'loading-overlay';
     overlay.innerHTML = '<div class="spinner"></div>';
@@ -58,12 +69,12 @@ async function loadMap() {
     if (stale) await fetchDevices();
   } catch (_) {}
   finally { overlay?.remove(); }
-  const devices = Object.fromEntries(panelsData.map(d => [d.serial, d]));
+  const devices = Object.fromEntries(state.panelsData.map(d => [d.serial, d]));
 
   document.querySelectorAll('#map-container .panel').forEach(el => {
     const label  = el.textContent.trim();
     const pos    = normalisePosition(label);
-    const serial = positionToSerial[pos];
+    const serial = state.positionToSerial[pos];
     const dev    = serial ? devices[serial] : null;
 
     el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
@@ -95,7 +106,7 @@ function detailSection(label, fields) {
   </div>`;
 }
 
-function showMapDetail(el, serial, dev, label) {
+export function showMapDetail(el, serial, dev, label) {
   document.querySelectorAll('#map-container .panel.selected').forEach(p => p.classList.remove('selected'));
   el.classList.add('selected');
 
