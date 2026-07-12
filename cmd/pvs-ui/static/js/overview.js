@@ -267,7 +267,7 @@ export async function loadRange(name, customSince, customUntil) {
   const { since, until, label } = resolveRange(name, customSince, customUntil);
   state.lastSince = since;
   state.lastUntil = until;
-  updateNavButtons();
+  updateNavButtons(label);
   await fetchAndRender(since, until, label, name);
 }
 
@@ -326,15 +326,17 @@ export async function shiftRange(direction) {
   const clampedUntil = Math.min(newUntil, now);
   state.lastSince = newSince;
   state.lastUntil = clampedUntil;
-  updateNavButtons();
-  await fetchAndRender(newSince, clampedUntil, shiftLabel(state.currentRange, newSince, clampedUntil), state.currentRange);
+  const label = shiftLabel(state.currentRange, newSince, clampedUntil);
+  updateNavButtons(label);
+  await fetchAndRender(newSince, clampedUntil, label, state.currentRange);
 }
 
 // ── Nav button state ──────────────────────────────────────────
-let _prevBtn = null;
-let _nextBtn = null;
+let _prevBtn    = null;
+let _nextBtn    = null;
+let _navPeriod  = null;
 
-export function updateNavButtons() {
+export function updateNavButtons(label) {
   if (!_prevBtn) return;
   const isLifetime = state.currentRange === 'lifetime';
   const atPresent  = state.lastUntil != null && state.lastUntil >= Math.floor(Date.now() / 1000) - 60;
@@ -343,6 +345,8 @@ export function updateNavButtons() {
   const hidden = state.isLive;
   _prevBtn.hidden = hidden;
   _nextBtn.hidden = hidden;
+  if (_navPeriod) _navPeriod.hidden = hidden;
+  if (label != null && _navPeriod) _navPeriod.textContent = label;
 }
 
 // ── Range select UI ───────────────────────────────────────────
@@ -356,6 +360,7 @@ export function initOverview() {
   const applyBtn      = document.getElementById('apply-custom');
   _prevBtn            = document.getElementById('prev-range');
   _nextBtn            = document.getElementById('next-range');
+  _navPeriod          = document.getElementById('nav-period');
 
   rangeSelect.addEventListener('change', () => {
     const val = rangeSelect.value;
