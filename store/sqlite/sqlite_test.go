@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -519,11 +518,11 @@ func TestMigrateV5Backfill(t *testing.T) {
 	defer db.Close()
 
 	// Apply only schema migrations 0–3 (v4 schema, no rollup tables).
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		_, err := db.Exec(migrations[i])
 		require.NoError(t, err)
 	}
-	_, err = db.Exec(fmt.Sprintf(`PRAGMA user_version = 4`))
+	_, err = db.Exec(`PRAGMA user_version = 4`)
 	require.NoError(t, err)
 
 	// Insert raw readings directly, bypassing SaveReading (which would also populate rollup tables).
