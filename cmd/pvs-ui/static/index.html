@@ -237,6 +237,29 @@
 
     #apply-custom:focus { outline: 2px solid var(--text); outline-offset: 2px; }
 
+    .nav-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0.35rem 0.7rem;
+    }
+
+    .nav-btn:hover:not(:disabled) { border-color: var(--solar); color: var(--solar); }
+    .nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .nav-btn:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    #nav-period {
+      font-size: 0.9rem;
+      color: var(--text);
+      min-width: 10rem;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
     /* ── Chart ───────────────────────────────────────────────── */
     #chart-container {
       background: var(--surface);
@@ -583,6 +606,9 @@
         <option value="lifetime">Lifetime</option>
         <option value="custom">Custom…</option>
       </select>
+      <button id="prev-range" class="nav-btn" aria-label="Previous period" title="Previous period" hidden>&#8592;</button>
+      <span id="nav-period" aria-live="polite"></span>
+      <button id="next-range" class="nav-btn" aria-label="Next period"     title="Next period"     hidden>&#8594;</button>
       <div class="custom-range" id="custom-range" role="group" aria-label="Custom date range">
         <label for="custom-since">From</label>
         <input type="date" id="custom-since" aria-label="Start date">
