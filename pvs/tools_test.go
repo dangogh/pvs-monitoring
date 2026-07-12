@@ -30,15 +30,15 @@ func (f *toolsStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta
 func (f *toolsStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
 	return nil, nil
 }
-func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
-func (f *toolsStore) EarliestReadingAt(_ context.Context) (time.Time, error)       { return time.Time{}, nil }
-func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
-func (f *toolsStore) LatestInverters(_ context.Context) ([]InverterDevice, error)  { return nil, nil }
-func (f *toolsStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)              { return nil, nil }
-func (f *toolsStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error        { return nil }
-func (f *toolsStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error       { return nil }
-func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)              { return nil, nil }
-func (f *toolsStore) Close() error                                                             { return nil }
+func (f *toolsStore) CountReadings(_ context.Context) (int64, error)                     { return 0, nil }
+func (f *toolsStore) EarliestReadingAt(_ context.Context) (time.Time, error)             { return time.Time{}, nil }
+func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error       { return nil }
+func (f *toolsStore) LatestInverters(_ context.Context) ([]InverterDevice, error)        { return nil, nil }
+func (f *toolsStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)            { return nil, nil }
+func (f *toolsStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
+func (f *toolsStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
+func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
+func (f *toolsStore) Close() error                                                       { return nil }
 
 func freshReading(r *Reading) *Reading {
 	r.ReceivedAt = time.Now()

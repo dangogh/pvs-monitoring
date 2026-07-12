@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,10 +15,47 @@ import (
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
+//go:embed sql
+var sqlFS embed.FS
+
+func mustSQL(path string) string {
+	b, err := sqlFS.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("missing SQL file %s: %v", path, err))
+	}
+	return string(b)
+}
+
 // Store persists readings in a SQLite database.
 type Store struct {
 	db *sql.DB
 }
+
+// migrations is an ordered list of SQL DDL strings, one per schema version.
+// Index i brings the DB from version i → i+1.
+var migrations = []string{
+	mustSQL("sql/migrations/001_initial.sql"),
+	mustSQL("sql/migrations/002_inverter_tables.sql"),
+	mustSQL("sql/migrations/003_aux_devices.sql"),
+	mustSQL("sql/migrations/004_inverter_outages.sql"),
+}
+
+var (
+	sqlInsertReading    = mustSQL("sql/queries/insert_reading.sql")
+	sqlLatestReading    = mustSQL("sql/queries/latest_reading.sql")
+	sqlEarliestReading  = mustSQL("sql/queries/earliest_reading_at.sql")
+	sqlAveragePower     = mustSQL("sql/queries/average_power.sql")
+	sqlEnergyDelta      = mustSQL("sql/queries/energy_delta.sql")
+	sqlSeriesRaw        = mustSQL("sql/queries/series_raw.sql")
+	sqlCountReadings    = mustSQL("sql/queries/count_readings.sql")
+	sqlInsertInverter   = mustSQL("sql/queries/insert_inverter_reading.sql")
+	sqlInsertAuxDevice  = mustSQL("sql/queries/insert_aux_device.sql")
+	sqlLatestInverters  = mustSQL("sql/queries/latest_inverters.sql")
+	sqlLatestAuxDevices = mustSQL("sql/queries/latest_aux_devices.sql")
+	sqlOpenOutage       = mustSQL("sql/queries/open_outage.sql")
+	sqlCloseOutage      = mustSQL("sql/queries/close_outage.sql")
+	sqlListOpenOutages  = mustSQL("sql/queries/list_open_outages.sql")
+)
 
 // Open opens (or creates) the SQLite database at path, applying any pending migrations.
 func Open(path string) (*Store, error) {
@@ -34,106 +72,6 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &Store{db: db}, nil
-}
-
-// migrations is an ordered list of SQL DDL strings, one per schema version.
-// Index i brings the DB from version i → i+1.
-var migrations = []string{
-	// version 1: initial schema
-	`CREATE TABLE IF NOT EXISTS readings (
-		id           INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at  INTEGER NOT NULL,
-		reading_time INTEGER NOT NULL,
-		solar_kw     REAL NOT NULL,
-		load_kw      REAL NOT NULL,
-		net_kw       REAL NOT NULL,
-		solar_kwh    REAL NOT NULL,
-		load_kwh     REAL NOT NULL,
-		net_kwh      REAL NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_received_at ON readings(received_at);
-
-	CREATE TABLE IF NOT EXISTS device_readings (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at INTEGER NOT NULL,
-		device_type TEXT NOT NULL,
-		serial      TEXT NOT NULL,
-		payload     TEXT NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_device_received_at ON device_readings(received_at);`,
-
-	// version 2: typed inverter table + pvs/meter tables; migrate device_readings
-	`CREATE TABLE inverter_readings (
-		id              INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at     INTEGER NOT NULL,
-		serial          TEXT    NOT NULL,
-		state           TEXT    NOT NULL,
-		state_descr     TEXT    NOT NULL,
-		power_kw        REAL    NOT NULL,
-		lifetime_kwh    REAL    NOT NULL,
-		voltage_v       REAL    NOT NULL,
-		current_a       REAL    NOT NULL,
-		power_mppt1_kw  REAL    NOT NULL,
-		voltage_mppt1_v REAL    NOT NULL,
-		current_mppt1_a REAL    NOT NULL,
-		temp_c          REAL    NOT NULL,
-		freq_hz         REAL    NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_inv_received_at ON inverter_readings(received_at);
-	CREATE INDEX IF NOT EXISTS idx_inv_serial      ON inverter_readings(serial);
-
-	CREATE TABLE pvs_readings (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at INTEGER NOT NULL,
-		serial      TEXT    NOT NULL,
-		state       TEXT    NOT NULL,
-		state_descr TEXT    NOT NULL,
-		err_count   INTEGER NOT NULL,
-		comm_err    INTEGER NOT NULL,
-		uptime_sec  INTEGER NOT NULL,
-		cpu_load    REAL    NOT NULL,
-		mem_used    INTEGER NOT NULL,
-		flash_avail INTEGER NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_pvs_received_at ON pvs_readings(received_at);
-
-	CREATE TABLE meter_readings (
-		id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at          INTEGER NOT NULL,
-		serial               TEXT    NOT NULL,
-		state                TEXT    NOT NULL,
-		state_descr          TEXT    NOT NULL,
-		subtype              TEXT    NOT NULL,
-		lifetime_kwh         REAL    NOT NULL,
-		power_kw             REAL    NOT NULL,
-		reactive_power_kvar  REAL    NOT NULL,
-		apparent_power_kva   REAL    NOT NULL,
-		power_factor         REAL    NOT NULL,
-		freq_hz              REAL    NOT NULL,
-		current_a            REAL    NOT NULL,
-		voltage_v            REAL    NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_meter_received_at ON meter_readings(received_at);`,
-
-	// version 3: consolidate pvs_readings + meter_readings into aux_device_readings
-	`CREATE TABLE aux_device_readings (
-		id          INTEGER PRIMARY KEY AUTOINCREMENT,
-		received_at INTEGER NOT NULL,
-		device_type TEXT    NOT NULL,
-		serial      TEXT    NOT NULL,
-		payload     TEXT    NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_aux_received_at ON aux_device_readings(received_at);`,
-
-	// version 4: inverter outage tracking (one row per error period)
-	`CREATE TABLE inverter_outages (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
-		serial     TEXT    NOT NULL,
-		error_at   INTEGER NOT NULL,
-		healthy_at INTEGER
-	);
-	CREATE INDEX IF NOT EXISTS idx_outage_serial ON inverter_outages(serial);
-	CREATE INDEX IF NOT EXISTS idx_outage_open ON inverter_outages(serial) WHERE healthy_at IS NULL;`,
 }
 
 // migrateV2 copies rows from device_readings into the typed tables, then drops device_readings.
@@ -160,11 +98,7 @@ func migrateV2(tx *sql.Tx) error {
 				slog.Default().Warn("migrateV2: skipping unparseable inverter row", "serial", serial, "err", err)
 				continue
 			}
-			if _, err := tx.Exec(
-				`INSERT INTO inverter_readings
-				 (received_at, serial, state, state_descr, power_kw, lifetime_kwh, voltage_v, current_a,
-				  power_mppt1_kw, voltage_mppt1_v, current_mppt1_a, temp_c, freq_hz)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			if _, err := tx.Exec(sqlInsertInverter,
 				receivedAt, inv.Serial, inv.State, inv.StateDescr,
 				inv.PowerKW, inv.LifetimeKWh, inv.VoltageV, inv.CurrentA,
 				inv.PowerMPPT1KW, inv.VoltageMPPT1V, inv.CurrentMPPT1A,
@@ -361,9 +295,7 @@ func migrate(db *sql.DB) error {
 }
 
 func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO readings (received_at, reading_time, solar_kw, load_kw, net_kw, solar_kwh, load_kwh, net_kwh)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := s.db.ExecContext(ctx, sqlInsertReading,
 		r.ReceivedAt.Unix(), r.Time.Unix(),
 		r.SolarKW, r.LoadKW, r.NetKW,
 		r.SolarKWh, r.LoadKWh, r.NetKWh,
@@ -372,9 +304,7 @@ func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
 }
 
 func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT received_at, reading_time, solar_kw, load_kw, net_kw, solar_kwh, load_kwh, net_kwh
-		 FROM readings ORDER BY received_at DESC LIMIT 1`)
+	row := s.db.QueryRowContext(ctx, sqlLatestReading)
 	var receivedAt, readingTime int64
 	var r pvs.Reading
 	err := row.Scan(&receivedAt, &readingTime, &r.SolarKW, &r.LoadKW, &r.NetKW, &r.SolarKWh, &r.LoadKWh, &r.NetKWh)
@@ -390,7 +320,7 @@ func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
 }
 
 func (s *Store) EarliestReadingAt(ctx context.Context) (time.Time, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT MIN(received_at) FROM readings`)
+	row := s.db.QueryRowContext(ctx, sqlEarliestReading)
 	var ts sql.NullInt64
 	if err := row.Scan(&ts); err != nil {
 		return time.Time{}, fmt.Errorf("query earliest reading: %w", err)
@@ -405,11 +335,7 @@ func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.P
 	if !until.IsZero() && since.After(until) {
 		return pvs.PowerAvg{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
 	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*)
-		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
-		since.Unix(), until.Unix(),
-	)
+	row := s.db.QueryRowContext(ctx, sqlAveragePower, since.Unix(), until.Unix())
 	var solarKW, loadKW, netKW sql.NullFloat64
 	var samples int
 	if err := row.Scan(&solarKW, &loadKW, &netKW, &samples); err != nil {
@@ -427,13 +353,7 @@ func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.En
 	if !until.IsZero() && since.After(until) {
 		return pvs.EnergyDelta{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
 	}
-	row := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0),
-		        COALESCE(MAX(load_kwh)-MIN(load_kwh), 0),
-		        COALESCE(MAX(load_kwh)-MIN(load_kwh), 0) - COALESCE(MAX(solar_kwh)-MIN(solar_kwh), 0)
-		 FROM readings WHERE received_at >= ? AND received_at <= ?`,
-		since.Unix(), until.Unix(),
-	)
+	row := s.db.QueryRowContext(ctx, sqlEnergyDelta, since.Unix(), until.Unix())
 	var solar, load, net float64
 	if err := row.Scan(&solar, &load, &net); err != nil {
 		return pvs.EnergyDelta{}, fmt.Errorf("query energy delta: %w", err)
@@ -459,11 +379,7 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 			if err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO inverter_readings
-				 (received_at, serial, state, state_descr, power_kw, lifetime_kwh, voltage_v, current_a,
-				  power_mppt1_kw, voltage_mppt1_v, current_mppt1_a, temp_c, freq_hz)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			if _, err := tx.ExecContext(ctx, sqlInsertInverter,
 				receivedAt.Unix(), inv.Serial, inv.State, inv.StateDescr,
 				inv.PowerKW, inv.LifetimeKWh, inv.VoltageV, inv.CurrentA,
 				inv.PowerMPPT1KW, inv.VoltageMPPT1V, inv.CurrentMPPT1A,
@@ -472,8 +388,7 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 				return err
 			}
 		default:
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO aux_device_readings (received_at, device_type, serial, payload) VALUES (?, ?, ?, ?)`,
+			if _, err := tx.ExecContext(ctx, sqlInsertAuxDevice,
 				receivedAt.Unix(), d.DeviceType, d.Serial, string(d.Raw),
 			); err != nil {
 				return err
@@ -485,18 +400,7 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 
 func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, error) {
 	midnight := time.Now().Truncate(24 * time.Hour).Unix()
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT ir.serial, ir.state, ir.state_descr, ir.received_at, ir.power_kw, ir.lifetime_kwh,
-		        ir.voltage_v, ir.current_a, ir.power_mppt1_kw, ir.voltage_mppt1_v, ir.current_mppt1_a,
-		        ir.temp_c, ir.freq_hz,
-		        COALESCE(today.today_kwh, 0)
-		 FROM inverter_readings ir
-		 INNER JOIN (SELECT serial, MAX(received_at) AS max_ra FROM inverter_readings GROUP BY serial) latest
-		         ON ir.serial = latest.serial AND ir.received_at = latest.max_ra
-		 LEFT JOIN (SELECT serial, MAX(lifetime_kwh) - MIN(lifetime_kwh) AS today_kwh
-		            FROM inverter_readings WHERE received_at >= ? GROUP BY serial) today
-		        ON ir.serial = today.serial
-		 ORDER BY ir.serial`, midnight)
+	rows, err := s.db.QueryContext(ctx, sqlLatestInverters, midnight)
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
 	}
@@ -520,11 +424,7 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 }
 
 func (s *Store) LatestAuxDevices(ctx context.Context) ([]pvs.AuxDevice, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT device_type, serial, received_at, payload
-		 FROM aux_device_readings
-		 WHERE received_at = (SELECT MAX(received_at) FROM aux_device_readings)
-		 ORDER BY device_type, serial`)
+	rows, err := s.db.QueryContext(ctx, sqlLatestAuxDevices)
 	if err != nil {
 		return nil, fmt.Errorf("query latest aux devices: %w", err)
 	}
@@ -548,10 +448,7 @@ func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, buck
 	if !until.IsZero() && since.After(until) {
 		return nil, fmt.Errorf("since (%s) is after until (%s)", since, until)
 	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT CAST(received_at / ? AS INTEGER) * ? AS bucket, AVG(solar_kw), AVG(load_kw)
-		 FROM readings WHERE received_at >= ? AND received_at <= ?
-		 GROUP BY bucket ORDER BY bucket`,
+	rows, err := s.db.QueryContext(ctx, sqlSeriesRaw,
 		bucketSeconds, bucketSeconds, since.Unix(), until.Unix(),
 	)
 	if err != nil {
@@ -572,7 +469,7 @@ func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, buck
 
 func (s *Store) CountReadings(ctx context.Context) (int64, error) {
 	var count int64
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, sqlCountReadings).Scan(&count)
 	return count, err
 }
 
@@ -580,32 +477,18 @@ func (s *Store) CountReadings(ctx context.Context) (int64, error) {
 // If an open outage already exists for this serial (e.g. after a service restart),
 // this is a no-op so we don't create duplicate records.
 func (s *Store) OpenInverterOutage(ctx context.Context, serial string, at time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO inverter_outages (serial, error_at)
-		 SELECT ?, ? WHERE NOT EXISTS (
-		     SELECT 1 FROM inverter_outages WHERE serial = ? AND healthy_at IS NULL
-		 )`,
-		serial, at.Unix(), serial,
-	)
+	_, err := s.db.ExecContext(ctx, sqlOpenOutage, serial, at.Unix(), serial)
 	return err
 }
 
 // CloseInverterOutage records that serial returned to a healthy state at at.
 func (s *Store) CloseInverterOutage(ctx context.Context, serial string, at time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE inverter_outages SET healthy_at = ?
-		 WHERE id = (
-		     SELECT id FROM inverter_outages
-		     WHERE serial = ? AND healthy_at IS NULL
-		     ORDER BY error_at DESC LIMIT 1
-		 )`,
-		at.Unix(), serial,
-	)
+	_, err := s.db.ExecContext(ctx, sqlCloseOutage, at.Unix(), serial)
 	return err
 }
 
 func (s *Store) ListOpenInverterOutages(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT serial FROM inverter_outages WHERE healthy_at IS NULL`)
+	rows, err := s.db.QueryContext(ctx, sqlListOpenOutages)
 	if err != nil {
 		return nil, fmt.Errorf("query open outages: %w", err)
 	}
