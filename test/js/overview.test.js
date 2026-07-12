@@ -20,25 +20,25 @@ describe('resolveRange', () => {
     // 2024-07-10 is Wed; Sunday of this week is 2024-07-07
     const sunday = Math.floor(new Date(2024, 6, 7) / 1000);
     expect(since).toBe(sunday);
-    expect(label).toBe('This Week');
+    expect(label).toContain('–'); // date range format
   });
 
   it('this_month: since = first of month', () => {
     const { since, label } = resolveRange('this_month');
     expect(since).toBe(Math.floor(new Date(2024, 6, 1) / 1000));
-    expect(label).toBe('This Month');
+    expect(label).toContain('2024'); // month name + year
   });
 
   it('this_year: since = Jan 1', () => {
     const { since, label } = resolveRange('this_year');
     expect(since).toBe(Math.floor(new Date(2024, 0, 1) / 1000));
-    expect(label).toBe('This Year');
+    expect(label).toBe('2024');
   });
 
   it('past_24h: since = now - 86400', () => {
     const { since, until, label } = resolveRange('past_24h');
     expect(until - since).toBe(86400);
-    expect(label).toBe('Past 24 Hours');
+    expect(label).toContain('–'); // date range format
   });
 
   it('past_7d: window is exactly 7 days', () => {
@@ -54,7 +54,7 @@ describe('resolveRange', () => {
   it('past_year: since = same day last year', () => {
     const { since, label } = resolveRange('past_year');
     expect(since).toBe(Math.floor(new Date(2023, 6, 10) / 1000));
-    expect(label).toBe('Past Year');
+    expect(label).toContain('–'); // date range format
   });
 
   it('lifetime: since = 0', () => {

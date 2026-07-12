@@ -183,6 +183,14 @@ export function renderChart(series, rangeLabel, since, until, rangeName) {
 }
 
 // ── Range resolution ──────────────────────────────────────────
+function fmtDate(d) {
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function dateRange(sinceMs, untilMs) {
+  return fmtDate(new Date(sinceMs)) + ' – ' + fmtDate(new Date(untilMs));
+}
+
 export function resolveRange(name, customSince, customUntil) {
   const now   = new Date();
   const y     = now.getFullYear();
@@ -196,20 +204,29 @@ export function resolveRange(name, customSince, customUntil) {
       return { since: Math.floor(today / 1000), until, label: 'Today' };
     case 'this_week': {
       const dow = now.getDay();
-      return { since: Math.floor(new Date(y, m, d - dow) / 1000), until, label: 'This Week' };
+      const s   = Math.floor(new Date(y, m, d - dow) / 1000);
+      return { since: s, until, label: dateRange(s * 1000, until * 1000) };
     }
     case 'this_month':
-      return { since: Math.floor(new Date(y, m, 1) / 1000), until, label: 'This Month' };
+      return { since: Math.floor(new Date(y, m, 1) / 1000), until, label: now.toLocaleDateString([], { month: 'long', year: 'numeric' }) };
     case 'this_year':
-      return { since: Math.floor(new Date(y, 0, 1) / 1000), until, label: 'This Year' };
-    case 'past_24h':
-      return { since: until - 86400, until, label: 'Past 24 Hours' };
-    case 'past_7d':
-      return { since: until - 7 * 86400, until, label: 'Past 7 Days' };
-    case 'past_30d':
-      return { since: until - 30 * 86400, until, label: 'Past 30 Days' };
-    case 'past_year':
-      return { since: Math.floor(new Date(y - 1, m, d) / 1000), until, label: 'Past Year' };
+      return { since: Math.floor(new Date(y, 0, 1) / 1000), until, label: String(y) };
+    case 'past_24h': {
+      const s = until - 86400;
+      return { since: s, until, label: dateRange(s * 1000, until * 1000) };
+    }
+    case 'past_7d': {
+      const s = until - 7 * 86400;
+      return { since: s, until, label: dateRange(s * 1000, until * 1000) };
+    }
+    case 'past_30d': {
+      const s = until - 30 * 86400;
+      return { since: s, until, label: dateRange(s * 1000, until * 1000) };
+    }
+    case 'past_year': {
+      const s = Math.floor(new Date(y - 1, m, d) / 1000);
+      return { since: s, until, label: dateRange(s * 1000, until * 1000) };
+    }
     case 'lifetime':
       return { since: 0, until, label: 'Lifetime' };
     case 'custom': {
