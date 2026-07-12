@@ -11,7 +11,6 @@ import (
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
-
 type apiServer struct {
 	store  pvs.Store
 	logger *slog.Logger

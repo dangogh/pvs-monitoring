@@ -410,14 +410,16 @@ func (f *fakeDeviceStore) SaveDevices(_ context.Context, devices []Device, _ tim
 func (f *fakeDeviceStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
 	return nil, nil
 }
-func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error)              { return 0, nil }
-func (f *fakeDeviceStore) EarliestReadingAt(_ context.Context) (time.Time, error)      { return time.Time{}, nil }
+func (f *fakeDeviceStore) CountReadings(_ context.Context) (int64, error) { return 0, nil }
+func (f *fakeDeviceStore) EarliestReadingAt(_ context.Context) (time.Time, error) {
+	return time.Time{}, nil
+}
 func (f *fakeDeviceStore) LatestInverters(_ context.Context) ([]InverterDevice, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.inverters, nil
 }
-func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)     { return nil, nil }
+func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error) { return nil, nil }
 func (f *fakeDeviceStore) OpenInverterOutage(_ context.Context, serial string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

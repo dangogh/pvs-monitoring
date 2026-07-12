@@ -15,16 +15,16 @@ import (
 
 // fakeStore is a configurable pvs.Store for handler tests.
 type fakeStore struct {
-	reading       *pvs.Reading
-	readingErr    error
-	energy        pvs.EnergyDelta
-	energyErr     error
-	avg           pvs.PowerAvg
-	avgErr        error
-	series        []pvs.SeriesPoint
-	seriesErr     error
-	inverters     []pvs.InverterDevice
-	invertersErr  error
+	reading      *pvs.Reading
+	readingErr   error
+	energy       pvs.EnergyDelta
+	energyErr    error
+	avg          pvs.PowerAvg
+	avgErr       error
+	series       []pvs.SeriesPoint
+	seriesErr    error
+	inverters    []pvs.InverterDevice
+	invertersErr error
 }
 
 func (f *fakeStore) SaveReading(_ context.Context, _ *pvs.Reading) error { return nil }
@@ -40,17 +40,17 @@ func (f *fakeStore) EnergyDelta(_ context.Context, _, _ time.Time) (pvs.EnergyDe
 func (f *fakeStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]pvs.SeriesPoint, error) {
 	return f.series, f.seriesErr
 }
-func (f *fakeStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
-func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error)       { return time.Time{}, nil }
+func (f *fakeStore) CountReadings(_ context.Context) (int64, error)                   { return 0, nil }
+func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error)           { return time.Time{}, nil }
 func (f *fakeStore) SaveDevices(_ context.Context, _ []pvs.Device, _ time.Time) error { return nil }
 func (f *fakeStore) LatestInverters(_ context.Context) ([]pvs.InverterDevice, error) {
 	return f.inverters, f.invertersErr
 }
-func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]pvs.AuxDevice, error)              { return nil, nil }
-func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error        { return nil }
-func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error       { return nil }
-func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)              { return nil, nil }
-func (f *fakeStore) Close() error                                                             { return nil }
+func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]pvs.AuxDevice, error)        { return nil, nil }
+func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
+func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
+func (f *fakeStore) Close() error                                                       { return nil }
 
 func newServer(store pvs.Store) *apiServer {
 	return &apiServer{store: store}
@@ -136,7 +136,9 @@ func TestHandleData_NoCurrentReading(t *testing.T) {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
 	var got dataResponse
-	json.NewDecoder(w.Body).Decode(&got)
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if got.Current != nil {
 		t.Error("expected current to be nil when no reading")
 	}
