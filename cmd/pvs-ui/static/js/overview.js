@@ -226,22 +226,19 @@ export function resolveRange(name, customSince, customUntil) {
 function shiftLabel(name, since, until) {
   const s = new Date(since * 1000);
   const u = new Date(until * 1000);
-  const fmt = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const fmtDate = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const range   = () => fmtDate(s) + ' – ' + fmtDate(u);
   switch (name) {
     case 'today':
-    case 'past_24h':
-      return s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      return s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     case 'this_week':
-    case 'past_7d':
-      return fmt(s) + ' – ' + fmt(u);
+      return fmtDate(s) + ' – ' + fmtDate(u);
     case 'this_month':
-    case 'past_30d':
       return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
     case 'this_year':
-    case 'past_year':
       return String(s.getFullYear());
     default:
-      return fmt(s) + ' – ' + fmt(u);
+      return range();
   }
 }
 
