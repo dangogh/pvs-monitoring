@@ -261,6 +261,11 @@ function shiftLabel(name, since, until) {
 
 // ── Fetch and render ──────────────────────────────────────────
 export async function fetchAndRender(since, until, label, rangeName) {
+  const container = document.getElementById('chart-container');
+  const overlay = document.createElement('div');
+  overlay.className = 'loading-overlay';
+  overlay.innerHTML = '<div class="spinner"></div>';
+  container.appendChild(overlay);
   try {
     const url = state.apiBase + '/api/data?since=' + since + '&until=' + until;
     const resp = await fetch(url);
@@ -273,6 +278,8 @@ export async function fetchAndRender(since, until, label, rangeName) {
     renderChart(data.series, label, chartSince, until, rangeName);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
+  } finally {
+    overlay.remove();
   }
 }
 

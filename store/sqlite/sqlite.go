@@ -38,23 +38,33 @@ var migrations = []string{
 	mustSQL("sql/migrations/002_inverter_tables.sql"),
 	mustSQL("sql/migrations/003_aux_devices.sql"),
 	mustSQL("sql/migrations/004_inverter_outages.sql"),
+	mustSQL("sql/migrations/005_rollup_tables.sql"),
 }
 
 var (
-	sqlInsertReading    = mustSQL("sql/queries/insert_reading.sql")
-	sqlLatestReading    = mustSQL("sql/queries/latest_reading.sql")
-	sqlEarliestReading  = mustSQL("sql/queries/earliest_reading_at.sql")
-	sqlAveragePower     = mustSQL("sql/queries/average_power.sql")
-	sqlEnergyDelta      = mustSQL("sql/queries/energy_delta.sql")
-	sqlSeriesRaw        = mustSQL("sql/queries/series_raw.sql")
-	sqlCountReadings    = mustSQL("sql/queries/count_readings.sql")
-	sqlInsertInverter   = mustSQL("sql/queries/insert_inverter_reading.sql")
-	sqlInsertAuxDevice  = mustSQL("sql/queries/insert_aux_device.sql")
-	sqlLatestInverters  = mustSQL("sql/queries/latest_inverters.sql")
-	sqlLatestAuxDevices = mustSQL("sql/queries/latest_aux_devices.sql")
-	sqlOpenOutage       = mustSQL("sql/queries/open_outage.sql")
-	sqlCloseOutage      = mustSQL("sql/queries/close_outage.sql")
-	sqlListOpenOutages  = mustSQL("sql/queries/list_open_outages.sql")
+	sqlInsertReading      = mustSQL("sql/queries/insert_reading.sql")
+	sqlLatestReading      = mustSQL("sql/queries/latest_reading.sql")
+	sqlEarliestReading    = mustSQL("sql/queries/earliest_reading_at.sql")
+	sqlAveragePower       = mustSQL("sql/queries/average_power.sql")
+	sqlAveragePowerRollup = mustSQL("sql/queries/average_power_rollup.sql")
+	sqlEnergyDelta        = mustSQL("sql/queries/energy_delta.sql")
+	sqlEnergyDeltaRollup  = mustSQL("sql/queries/energy_delta_rollup.sql")
+	sqlSeriesRaw          = mustSQL("sql/queries/series_raw.sql")
+	sqlSeriesHourly       = mustSQL("sql/queries/series_hourly.sql")
+	sqlSeriesHourly6h     = mustSQL("sql/queries/series_hourly_6h.sql")
+	sqlSeriesDaily        = mustSQL("sql/queries/series_daily.sql")
+	sqlUpsertHourly       = mustSQL("sql/queries/upsert_hourly.sql")
+	sqlUpsertDaily        = mustSQL("sql/queries/upsert_daily.sql")
+	sqlBackfillHourly     = mustSQL("sql/queries/backfill_hourly.sql")
+	sqlBackfillDaily      = mustSQL("sql/queries/backfill_daily.sql")
+	sqlCountReadings      = mustSQL("sql/queries/count_readings.sql")
+	sqlInsertInverter     = mustSQL("sql/queries/insert_inverter_reading.sql")
+	sqlInsertAuxDevice    = mustSQL("sql/queries/insert_aux_device.sql")
+	sqlLatestInverters    = mustSQL("sql/queries/latest_inverters.sql")
+	sqlLatestAuxDevices   = mustSQL("sql/queries/latest_aux_devices.sql")
+	sqlOpenOutage         = mustSQL("sql/queries/open_outage.sql")
+	sqlCloseOutage        = mustSQL("sql/queries/close_outage.sql")
+	sqlListOpenOutages    = mustSQL("sql/queries/list_open_outages.sql")
 )
 
 // Open opens (or creates) the SQLite database at path, applying any pending migrations.
@@ -255,11 +265,21 @@ func migrateV4(tx *sql.Tx) error {
 	return nil
 }
 
+// migrateV5 backfills readings_hourly and readings_daily from the raw readings table.
+func migrateV5(tx *sql.Tx) error {
+	if _, err := tx.Exec(sqlBackfillHourly); err != nil {
+		return err
+	}
+	_, err := tx.Exec(sqlBackfillDaily)
+	return err
+}
+
 // dataMigrations holds optional data-migration functions keyed by migration index (0-based).
 var dataMigrations = map[int]func(*sql.Tx) error{
 	1: migrateV2,
 	2: migrateV3,
 	3: migrateV4,
+	4: migrateV5,
 }
 
 func migrate(db *sql.DB) error {
@@ -295,12 +315,33 @@ func migrate(db *sql.DB) error {
 }
 
 func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
-	_, err := s.db.ExecContext(ctx, sqlInsertReading,
-		r.ReceivedAt.Unix(), r.Time.Unix(),
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	ts := r.ReceivedAt.Unix()
+	if _, err := tx.ExecContext(ctx, sqlInsertReading,
+		ts, r.Time.Unix(),
 		r.SolarKW, r.LoadKW, r.NetKW,
 		r.SolarKWh, r.LoadKWh, r.NetKWh,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	hourBucket := (ts / 3600) * 3600
+	if _, err := tx.ExecContext(ctx, sqlUpsertHourly,
+		hourBucket, r.SolarKW, r.LoadKW, r.NetKW, r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh,
+	); err != nil {
+		return err
+	}
+	dayBucket := (ts / 86400) * 86400
+	if _, err := tx.ExecContext(ctx, sqlUpsertDaily,
+		dayBucket, r.SolarKW, r.LoadKW, r.NetKW, r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {
@@ -335,6 +376,22 @@ func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.P
 	if !until.IsZero() && since.After(until) {
 		return pvs.PowerAvg{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
 	}
+	if until.Sub(since) > 48*time.Hour {
+		sinceUnix := since.Unix()
+		sinceHour := (sinceUnix / 3600) * 3600
+		row := s.db.QueryRowContext(ctx, sqlAveragePowerRollup, sinceHour, until.Unix())
+		var solarKW, loadKW, netKW sql.NullFloat64
+		var samples sql.NullInt64
+		if err := row.Scan(&solarKW, &loadKW, &netKW, &samples); err != nil {
+			return pvs.PowerAvg{}, fmt.Errorf("query average rollup: %w", err)
+		}
+		return pvs.PowerAvg{
+			SolarKW: solarKW.Float64,
+			LoadKW:  loadKW.Float64,
+			NetKW:   netKW.Float64,
+			Samples: int(samples.Int64),
+		}, nil
+	}
 	row := s.db.QueryRowContext(ctx, sqlAveragePower, since.Unix(), until.Unix())
 	var solarKW, loadKW, netKW sql.NullFloat64
 	var samples int
@@ -352,6 +409,20 @@ func (s *Store) AveragePower(ctx context.Context, since, until time.Time) (pvs.P
 func (s *Store) EnergyDelta(ctx context.Context, since, until time.Time) (pvs.EnergyDelta, error) {
 	if !until.IsZero() && since.After(until) {
 		return pvs.EnergyDelta{}, fmt.Errorf("since (%s) is after until (%s)", since, until)
+	}
+	if until.Sub(since) > 48*time.Hour {
+		sinceUnix := since.Unix()
+		sinceHour := (sinceUnix / 3600) * 3600
+		row := s.db.QueryRowContext(ctx, sqlEnergyDeltaRollup, sinceHour, until.Unix())
+		var solar, load, net float64
+		if err := row.Scan(&solar, &load, &net); err != nil {
+			return pvs.EnergyDelta{}, fmt.Errorf("query energy delta rollup: %w", err)
+		}
+		return pvs.EnergyDelta{
+			SolarKWh: solar,
+			LoadKWh:  load,
+			NetKWh:   net,
+		}, nil
 	}
 	row := s.db.QueryRowContext(ctx, sqlEnergyDelta, since.Unix(), until.Unix())
 	var solar, load, net float64
@@ -448,9 +519,24 @@ func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, buck
 	if !until.IsZero() && since.After(until) {
 		return nil, fmt.Errorf("since (%s) is after until (%s)", since, until)
 	}
-	rows, err := s.db.QueryContext(ctx, sqlSeriesRaw,
-		bucketSeconds, bucketSeconds, since.Unix(), until.Unix(),
-	)
+	sinceUnix := since.Unix()
+	var rows *sql.Rows
+	var err error
+	switch bucketSeconds {
+	case 3600:
+		sinceHour := (sinceUnix / 3600) * 3600
+		rows, err = s.db.QueryContext(ctx, sqlSeriesHourly, sinceHour, until.Unix())
+	case 21600:
+		sinceHour := (sinceUnix / 3600) * 3600
+		rows, err = s.db.QueryContext(ctx, sqlSeriesHourly6h, sinceHour, until.Unix())
+	case 86400:
+		sinceDay := (sinceUnix / 86400) * 86400
+		rows, err = s.db.QueryContext(ctx, sqlSeriesDaily, sinceDay, until.Unix())
+	default:
+		rows, err = s.db.QueryContext(ctx, sqlSeriesRaw,
+			bucketSeconds, bucketSeconds, sinceUnix, until.Unix(),
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("query series: %w", err)
 	}

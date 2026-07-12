@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -304,6 +305,251 @@ func TestLatestReading(t *testing.T) {
 		assert.Equal(t, now.Unix(), got.ReceivedAt.Unix())
 		assert.InDelta(t, 2.0, got.SolarKW, 1e-9)
 	})
+}
+
+func TestRollupUpsert(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	t.Run("single reading creates hourly and daily rows", func(t *testing.T) {
+		s := openTestStore(t)
+		r := &pvs.Reading{ReceivedAt: base, SolarKW: 10.0, LoadKW: 4.0, NetKW: -6.0, SolarKWh: 100.0, LoadKWh: 50.0}
+		require.NoError(t, s.SaveReading(ctx, r))
+
+		var count int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_hourly`).Scan(&count))
+		assert.Equal(t, 1, count)
+
+		var bucket int64
+		var avgSolar, avgLoad float64
+		var sampleCount int
+		var minSolarKWh, maxSolarKWh float64
+		require.NoError(t, s.db.QueryRowContext(ctx,
+			`SELECT bucket, avg_solar_kw, avg_load_kw, sample_count, min_solar_kwh, max_solar_kwh FROM readings_hourly`).
+			Scan(&bucket, &avgSolar, &avgLoad, &sampleCount, &minSolarKWh, &maxSolarKWh))
+		assert.Equal(t, (base.Unix()/3600)*3600, bucket)
+		assert.InDelta(t, 10.0, avgSolar, 1e-9)
+		assert.InDelta(t, 4.0, avgLoad, 1e-9)
+		assert.Equal(t, 1, sampleCount)
+		assert.InDelta(t, 100.0, minSolarKWh, 1e-9)
+		assert.InDelta(t, 100.0, maxSolarKWh, 1e-9)
+
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_daily`).Scan(&count))
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("two readings in same hour merge with weighted avg", func(t *testing.T) {
+		s := openTestStore(t)
+		r1 := &pvs.Reading{ReceivedAt: base, SolarKW: 10.0, LoadKW: 4.0, NetKW: -6.0, SolarKWh: 100.0, LoadKWh: 50.0}
+		r2 := &pvs.Reading{ReceivedAt: base.Add(30 * time.Minute), SolarKW: 12.0, LoadKW: 6.0, NetKW: -4.0, SolarKWh: 100.5, LoadKWh: 50.5}
+		require.NoError(t, s.SaveReading(ctx, r1))
+		require.NoError(t, s.SaveReading(ctx, r2))
+
+		var sampleCount int
+		var avgSolar, avgLoad float64
+		var minSolarKWh, maxSolarKWh float64
+		require.NoError(t, s.db.QueryRowContext(ctx,
+			`SELECT avg_solar_kw, avg_load_kw, sample_count, min_solar_kwh, max_solar_kwh FROM readings_hourly`).
+			Scan(&avgSolar, &avgLoad, &sampleCount, &minSolarKWh, &maxSolarKWh))
+		assert.Equal(t, 2, sampleCount)
+		assert.InDelta(t, 11.0, avgSolar, 1e-9)
+		assert.InDelta(t, 5.0, avgLoad, 1e-9)
+		assert.InDelta(t, 100.0, minSolarKWh, 1e-9)
+		assert.InDelta(t, 100.5, maxSolarKWh, 1e-9)
+	})
+
+	t.Run("readings in different hours create separate buckets", func(t *testing.T) {
+		s := openTestStore(t)
+		r1 := &pvs.Reading{ReceivedAt: base, SolarKW: 10.0}
+		r2 := &pvs.Reading{ReceivedAt: base.Add(2 * time.Hour), SolarKW: 8.0}
+		require.NoError(t, s.SaveReading(ctx, r1))
+		require.NoError(t, s.SaveReading(ctx, r2))
+
+		var count int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_hourly`).Scan(&count))
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("readings in same day merge into one daily bucket", func(t *testing.T) {
+		s := openTestStore(t)
+		r1 := &pvs.Reading{ReceivedAt: base, SolarKW: 10.0, SolarKWh: 100.0}
+		r2 := &pvs.Reading{ReceivedAt: base.Add(3 * time.Hour), SolarKW: 8.0, SolarKWh: 102.0}
+		require.NoError(t, s.SaveReading(ctx, r1))
+		require.NoError(t, s.SaveReading(ctx, r2))
+
+		var count, sampleCount int
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_daily`).Scan(&count))
+		assert.Equal(t, 1, count)
+		require.NoError(t, s.db.QueryRowContext(ctx, `SELECT sample_count FROM readings_daily`).Scan(&sampleCount))
+		assert.Equal(t, 2, sampleCount)
+	})
+}
+
+func TestAveragePowerRouting(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	t.Run("span over 48h uses rollup table", func(t *testing.T) {
+		s := openTestStore(t)
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKW: 10.0, LoadKW: 4.0, NetKW: -6.0, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(24 * time.Hour), SolarKW: 12.0, LoadKW: 6.0, NetKW: -4.0, SolarKWh: 110.0, LoadKWh: 60.0},
+			{ReceivedAt: base.Add(50 * time.Hour), SolarKW: 8.0, LoadKW: 3.0, NetKW: -5.0, SolarKWh: 120.0, LoadKWh: 70.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+		since := base.Add(-time.Hour)
+		until := base.Add(51 * time.Hour) // span > 48h
+
+		got, err := s.AveragePower(ctx, since, until)
+		require.NoError(t, err)
+		assert.Equal(t, 3, got.Samples)
+		assert.InDelta(t, 10.0, got.SolarKW, 1e-6)
+		assert.InDelta(t, 13.0/3.0, got.LoadKW, 1e-6)
+		assert.InDelta(t, -5.0, got.NetKW, 1e-6)
+	})
+
+	t.Run("span under 48h uses raw table", func(t *testing.T) {
+		s := openTestStore(t)
+		r := &pvs.Reading{ReceivedAt: base, SolarKW: 10.0, LoadKW: 4.0, NetKW: -6.0}
+		require.NoError(t, s.SaveReading(ctx, r))
+		since := base.Add(-time.Hour)
+		until := base.Add(47 * time.Hour) // span < 48h
+
+		got, err := s.AveragePower(ctx, since, until)
+		require.NoError(t, err)
+		assert.Equal(t, 1, got.Samples)
+		assert.InDelta(t, 10.0, got.SolarKW, 1e-9)
+	})
+}
+
+func TestEnergyDeltaRouting(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	t.Run("span over 48h uses rollup table", func(t *testing.T) {
+		s := openTestStore(t)
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(24 * time.Hour), SolarKWh: 110.0, LoadKWh: 60.0},
+			{ReceivedAt: base.Add(50 * time.Hour), SolarKWh: 125.0, LoadKWh: 75.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+		since := base.Add(-time.Hour)
+		until := base.Add(51 * time.Hour)
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 25.0, got.SolarKWh, 1e-6) // MAX(125) - MIN(100)
+		assert.InDelta(t, 25.0, got.LoadKWh, 1e-6)  // MAX(75) - MIN(50)
+		assert.InDelta(t, 0.0, got.NetKWh, 1e-6)    // 25 - 25
+	})
+
+	t.Run("span under 48h uses raw table", func(t *testing.T) {
+		s := openTestStore(t)
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(time.Hour), SolarKWh: 110.0, LoadKWh: 60.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+		since := base.Add(-time.Hour)
+		until := base.Add(2 * time.Hour) // span < 48h
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 10.0, got.SolarKWh, 1e-9)
+		assert.InDelta(t, 10.0, got.LoadKWh, 1e-9)
+	})
+}
+
+func TestReadingsSeriesRouting(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+
+	s := openTestStore(t)
+	readings := []*pvs.Reading{
+		{ReceivedAt: base, SolarKW: 10.0, LoadKW: 4.0},
+		{ReceivedAt: base.Add(24 * time.Hour), SolarKW: 12.0, LoadKW: 6.0},
+		{ReceivedAt: base.Add(48 * time.Hour), SolarKW: 8.0, LoadKW: 3.0},
+	}
+	for _, r := range readings {
+		require.NoError(t, s.SaveReading(ctx, r))
+	}
+	since := base.Add(-time.Hour)
+	until := base.Add(49 * time.Hour)
+
+	t.Run("bucketSeconds=3600 reads from readings_hourly", func(t *testing.T) {
+		pts, err := s.ReadingsSeries(ctx, since, until, 3600)
+		require.NoError(t, err)
+		require.Len(t, pts, 3)
+		assert.InDelta(t, 10.0, pts[0].SolarKW, 1e-9)
+		assert.InDelta(t, 12.0, pts[1].SolarKW, 1e-9)
+		assert.InDelta(t, 8.0, pts[2].SolarKW, 1e-9)
+	})
+
+	t.Run("bucketSeconds=86400 reads from readings_daily", func(t *testing.T) {
+		pts, err := s.ReadingsSeries(ctx, since, until, 86400)
+		require.NoError(t, err)
+		require.Len(t, pts, 3)
+		assert.InDelta(t, 10.0, pts[0].SolarKW, 1e-9)
+	})
+
+	t.Run("bucketSeconds=21600 groups readings_hourly into 6h buckets", func(t *testing.T) {
+		pts, err := s.ReadingsSeries(ctx, since, until, 21600)
+		require.NoError(t, err)
+		require.Len(t, pts, 3) // each reading is 24h apart, so each falls in a distinct 6h bucket
+		assert.InDelta(t, 10.0, pts[0].SolarKW, 1e-9)
+	})
+}
+
+func TestMigrateV5Backfill(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC) // noon UTC — two readings fit in one hour and one day
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Apply only schema migrations 0–3 (v4 schema, no rollup tables).
+	for i := range 4 {
+		_, err := db.Exec(migrations[i])
+		require.NoError(t, err)
+	}
+	_, err = db.Exec(`PRAGMA user_version = 4`)
+	require.NoError(t, err)
+
+	// Insert raw readings directly, bypassing SaveReading (which would also populate rollup tables).
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO readings (received_at, reading_time, solar_kw, load_kw, net_kw, solar_kwh, load_kwh, net_kwh)
+		VALUES (?, ?, 10.0, 4.0, -6.0, 100.0, 50.0, -50.0),
+		       (?, ?, 12.0, 6.0, -4.0, 110.0, 60.0, -50.0)`,
+		base.Unix(), base.Unix(),
+		base.Add(30*time.Minute).Unix(), base.Add(30*time.Minute).Unix())
+	require.NoError(t, err)
+
+	// Running migrate applies schema 005 (creates tables) then calls migrateV5 (backfills).
+	require.NoError(t, migrate(db))
+
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_hourly`).Scan(&count))
+	assert.Equal(t, 1, count, "both readings in same hour → 1 hourly bucket")
+
+	var sampleCount int
+	var avgSolar float64
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT sample_count, avg_solar_kw FROM readings_hourly`).Scan(&sampleCount, &avgSolar))
+	assert.Equal(t, 2, sampleCount)
+	assert.InDelta(t, 11.0, avgSolar, 1e-9) // AVG(10, 12) = 11
+
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings_daily`).Scan(&count))
+	assert.Equal(t, 1, count, "both readings in same day → 1 daily bucket")
 }
 
 func TestSaveReadingPersistsAllFields(t *testing.T) {
