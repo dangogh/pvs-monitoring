@@ -310,6 +310,7 @@ func migrate(db *sql.DB) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit migration %d: %w", i+1, err)
 		}
+		slog.Default().Info("applied database migration", "version", i+1)
 	}
 	return nil
 }
