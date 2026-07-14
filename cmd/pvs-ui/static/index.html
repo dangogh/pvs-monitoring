@@ -566,32 +566,6 @@
       </div>
     </section>
 
-    <div class="section-heading">
-      <span id="period-label">Period</span>
-    </div>
-    <section aria-label="Period summary" class="summary-cards">
-      <div class="summary-card" role="group" aria-label="Energy produced">
-        <span class="summary-label">Produced</span>
-        <span class="summary-value" id="sum-solar">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Energy consumed">
-        <span class="summary-label">Consumed</span>
-        <span class="summary-value" id="sum-load">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Net energy">
-        <span class="summary-label">Net</span>
-        <span class="summary-value" id="sum-net">—</span>
-        <span class="summary-unit">kWh</span>
-      </div>
-      <div class="summary-card" role="group" aria-label="Average production">
-        <span class="summary-label">Avg Production</span>
-        <span class="summary-value" id="sum-avg">—</span>
-        <span class="summary-unit">kW</span>
-      </div>
-    </section>
-
     <div class="range-row">
       <label for="range-select">Time range:</label>
       <select id="range-select" aria-label="Select time range">
@@ -622,6 +596,29 @@
     <section aria-label="Power chart" id="chart-container">
       <div id="chart"></div>
       <div id="no-data" role="status">No data for this period.</div>
+    </section>
+
+    <section aria-label="Period summary" class="summary-cards">
+      <div class="summary-card" role="group" aria-label="Energy produced">
+        <span class="summary-label">Produced</span>
+        <span class="summary-value" id="sum-solar">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Energy consumed">
+        <span class="summary-label">Consumed</span>
+        <span class="summary-value" id="sum-load">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Net energy">
+        <span class="summary-label">Net</span>
+        <span class="summary-value" id="sum-net">—</span>
+        <span class="summary-unit">kWh</span>
+      </div>
+      <div class="summary-card" role="group" aria-label="Average production">
+        <span class="summary-label">Avg Production</span>
+        <span class="summary-value" id="sum-avg">—</span>
+        <span class="summary-unit">kW</span>
+      </div>
     </section>
 
   </div><!-- /tab-overview -->

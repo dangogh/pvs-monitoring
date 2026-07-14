@@ -44,7 +44,8 @@ export function updateCurrent(c) {
 
 // ── Summary cards ─────────────────────────────────────────────
 export function updateSummary(s, label) {
-  if (label) document.getElementById('period-label').textContent = label;
+  const periodLabel = document.getElementById('period-label');
+  if (label && periodLabel) periodLabel.textContent = label;
 
   const solarEl = document.getElementById('sum-solar');
   const loadEl  = document.getElementById('sum-load');
@@ -187,8 +188,17 @@ function fmtDate(d) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function fmtDateTime(d) {
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 function dateRange(sinceMs, untilMs) {
   return fmtDate(new Date(sinceMs)) + ' – ' + fmtDate(new Date(untilMs));
+}
+
+function dateTimeRange(sinceMs, untilMs) {
+  return fmtDateTime(new Date(sinceMs)) + ' – ' + fmtDateTime(new Date(untilMs));
 }
 
 export function resolveRange(name, customSince, customUntil) {
@@ -275,6 +285,7 @@ export async function fetchAndRender(since, until, label, rangeName) {
     updateCurrent(data.current);
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
+    updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
     renderChart(data.series, label, chartSince, until, rangeName);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
