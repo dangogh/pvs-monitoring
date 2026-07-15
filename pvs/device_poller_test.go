@@ -448,6 +448,12 @@ func (f *fakeDeviceStore) ListOpenInverterOutages(_ context.Context) ([]string, 
 	}
 	return out, nil
 }
+func (f *fakeDeviceStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error) {
+	return 0, nil
+}
+func (f *fakeDeviceStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error) {
+	return nil, nil
+}
 func (f *fakeDeviceStore) Close() error { return nil }
 
 func TestDevicePollerOutageTracking(t *testing.T) {

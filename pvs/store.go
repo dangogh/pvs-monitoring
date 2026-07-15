@@ -27,6 +27,16 @@ type SeriesPoint struct {
 	LoadKW  float64
 }
 
+// MaintenanceEvent records a maintenance activity or system event.
+type MaintenanceEvent struct {
+	ID        int64
+	StartDate string // YYYY-MM-DD
+	EndDate   string // YYYY-MM-DD, empty for single-day events
+	EventType string
+	Notes     string
+	CreatedAt time.Time
+}
+
 // Store persists and queries readings.
 type Store interface {
 	SaveReading(ctx context.Context, r *Reading) error
@@ -42,5 +52,7 @@ type Store interface {
 	OpenInverterOutage(ctx context.Context, serial string, at time.Time) error
 	CloseInverterOutage(ctx context.Context, serial string, at time.Time) error
 	ListOpenInverterOutages(ctx context.Context) ([]string, error)
+	SaveMaintenanceEvent(ctx context.Context, e MaintenanceEvent) (int64, error)
+	ListMaintenanceEvents(ctx context.Context) ([]MaintenanceEvent, error)
 	Close() error
 }

@@ -37,8 +37,10 @@ func (f *toolsStore) LatestInverters(_ context.Context) ([]InverterDevice, error
 func (f *toolsStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)            { return nil, nil }
 func (f *toolsStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
 func (f *toolsStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
-func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
-func (f *toolsStore) Close() error                                                       { return nil }
+func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)                    { return nil, nil }
+func (f *toolsStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error)     { return 0, nil }
+func (f *toolsStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error)           { return nil, nil }
+func (f *toolsStore) Close() error                                                                  { return nil }
 
 func freshReading(r *Reading) *Reading {
 	r.ReceivedAt = time.Now()

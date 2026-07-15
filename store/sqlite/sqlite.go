@@ -39,6 +39,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/003_aux_devices.sql"),
 	mustSQL("sql/migrations/004_inverter_outages.sql"),
 	mustSQL("sql/migrations/005_rollup_tables.sql"),
+	mustSQL("sql/migrations/006_maintenance_events.sql"),
 }
 
 var (
@@ -62,9 +63,11 @@ var (
 	sqlInsertAuxDevice    = mustSQL("sql/queries/insert_aux_device.sql")
 	sqlLatestInverters    = mustSQL("sql/queries/latest_inverters.sql")
 	sqlLatestAuxDevices   = mustSQL("sql/queries/latest_aux_devices.sql")
-	sqlOpenOutage         = mustSQL("sql/queries/open_outage.sql")
-	sqlCloseOutage        = mustSQL("sql/queries/close_outage.sql")
-	sqlListOpenOutages    = mustSQL("sql/queries/list_open_outages.sql")
+	sqlOpenOutage              = mustSQL("sql/queries/open_outage.sql")
+	sqlCloseOutage             = mustSQL("sql/queries/close_outage.sql")
+	sqlListOpenOutages         = mustSQL("sql/queries/list_open_outages.sql")
+	sqlInsertMaintenanceEvent  = mustSQL("sql/queries/insert_maintenance_event.sql")
+	sqlListMaintenanceEvents   = mustSQL("sql/queries/list_maintenance_events.sql")
 )
 
 // Open opens (or creates) the SQLite database at path, applying any pending migrations.
@@ -589,6 +592,41 @@ func (s *Store) ListOpenInverterOutages(ctx context.Context) ([]string, error) {
 		serials = append(serials, serial)
 	}
 	return serials, rows.Err()
+}
+
+func (s *Store) SaveMaintenanceEvent(ctx context.Context, e pvs.MaintenanceEvent) (int64, error) {
+	var endDate any
+	if e.EndDate != "" {
+		endDate = e.EndDate
+	}
+	res, err := s.db.ExecContext(ctx, sqlInsertMaintenanceEvent,
+		e.StartDate, endDate, e.EventType, e.Notes, time.Now().Unix())
+	if err != nil {
+		return 0, fmt.Errorf("insert maintenance event: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) ListMaintenanceEvents(ctx context.Context) ([]pvs.MaintenanceEvent, error) {
+	rows, err := s.db.QueryContext(ctx, sqlListMaintenanceEvents)
+	if err != nil {
+		return nil, fmt.Errorf("list maintenance events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []pvs.MaintenanceEvent
+	for rows.Next() {
+		var e pvs.MaintenanceEvent
+		var endDate sql.NullString
+		var createdAt int64
+		if err := rows.Scan(&e.ID, &e.StartDate, &endDate, &e.EventType, &e.Notes, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan maintenance event: %w", err)
+		}
+		e.EndDate = endDate.String
+		e.CreatedAt = time.Unix(createdAt, 0)
+		events = append(events, e)
+	}
+	return events, rows.Err()
 }
 
 func (s *Store) Close() error {
