@@ -317,10 +317,16 @@ export function computeShift(name, since, until, direction) {
   const sinceDate = new Date(since * 1000);
 
   switch (name) {
-    case 'today':
+    case 'today': {
+      const newSince = since + d * 86400;
+      return { since: newSince, until: newSince + 86400 - 1 };
+    }
     case 'past_24h':
       return { since: since + d * 86400, until: until + d * 86400 };
-    case 'this_week':
+    case 'this_week': {
+      const newSince = since + d * 7 * 86400;
+      return { since: newSince, until: newSince + 7 * 86400 - 1 };
+    }
     case 'past_7d':
       return { since: since + d * 7 * 86400, until: until + d * 7 * 86400 };
     case 'this_month': {

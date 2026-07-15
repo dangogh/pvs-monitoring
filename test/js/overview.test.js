@@ -133,16 +133,16 @@ describe('computeShift — today/past_24h (1-day window)', () => {
   const since = Math.floor(new Date(2024, 6, 10) / 1000); // midnight Jul 10
   const until = since + DAY;
 
-  it('prev shifts back 1 day', () => {
+  it('prev shifts back 1 day and snaps until to end of that day', () => {
     const r = computeShift('today', since, until, -1);
     expect(r.since).toBe(since - DAY);
-    expect(r.until).toBe(until - DAY);
+    expect(r.until).toBe(since - 1);
   });
 
-  it('next shifts forward 1 day', () => {
+  it('next shifts forward 1 day and snaps until to end of that day', () => {
     const r = computeShift('today', since, until, +1);
     expect(r.since).toBe(since + DAY);
-    expect(r.until).toBe(until + DAY);
+    expect(r.until).toBe(since + 2 * DAY - 1);
   });
 
   it('past_24h behaves identically', () => {
@@ -155,10 +155,10 @@ describe('computeShift — this_week/past_7d (7-day window)', () => {
   const since = Math.floor(new Date(2024, 6, 7) / 1000); // Sunday Jul 7
   const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
 
-  it('prev shifts back 7 days', () => {
+  it('prev shifts back 7 days and snaps until to end of that week', () => {
     const r = computeShift('this_week', since, until, -1);
     expect(r.since).toBe(since - WEEK);
-    expect(r.until).toBe(until - WEEK);
+    expect(r.until).toBe(since - 1);
   });
 
   it('past_7d behaves identically', () => {
