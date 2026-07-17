@@ -67,8 +67,54 @@ export function updateSummary(s, label) {
   netEl.parentElement.setAttribute('aria-label', (net < 0 ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
 }
 
+// ── Maintenance event plot bands ──────────────────────────────
+const EVENT_COLORS = {
+  panel_cleaning: 'rgba(52, 211, 153, 0.12)',
+  hvac_outage:    'rgba(248, 113, 113, 0.12)',
+};
+const EVENT_LABELS = {
+  panel_cleaning: 'Panel Cleaning',
+  hvac_outage:    'HVAC Outage',
+};
+
+function eventColor(type) {
+  return EVENT_COLORS[type] || 'rgba(148, 163, 184, 0.10)';
+}
+
+function eventLabel(type) {
+  return EVENT_LABELS[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+export function buildPlotBands(events, since, until) {
+  const sinceMs = since * 1000;
+  const untilMs = until * 1000;
+  const bands = [];
+  for (const e of events) {
+    const start = new Date(e.start_date).getTime();
+    // end_date is inclusive; extend to end of that day. If absent, use start.
+    const end = e.end_date
+      ? new Date(e.end_date).getTime() + 86400_000
+      : start + 86400_000;
+    if (end < sinceMs || start > untilMs) continue;
+    bands.push({
+      from:  Math.max(start, sinceMs),
+      to:    Math.min(end,   untilMs),
+      color: eventColor(e.event_type),
+      label: {
+        text:  eventLabel(e.event_type),
+        style: { color: '#94a3b8', fontSize: '0.7rem' },
+        align: 'center',
+        verticalAlign: 'top',
+        y: 16,
+      },
+      zIndex: 1,
+    });
+  }
+  return bands;
+}
+
 // ── Chart ─────────────────────────────────────────────────────
-export function buildChartOptions(series, rangeLabel, since, until) {
+export function buildChartOptions(series, rangeLabel, since, until, events = []) {
   const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
   const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
 
@@ -101,6 +147,7 @@ export function buildChartOptions(series, rangeLabel, since, until) {
       lineColor: '#334155',
       tickColor: '#334155',
       labels: { style: { color: '#94a3b8' } },
+      plotBands: buildPlotBands(events, since, until),
     },
     yAxis: {
       title: { text: 'kW', style: { color: '#94a3b8' } },
@@ -154,7 +201,7 @@ export function buildChartOptions(series, rangeLabel, since, until) {
   };
 }
 
-export function renderChart(series, rangeLabel, since, until, rangeName) {
+export function renderChart(series, rangeLabel, since, until, rangeName, events = []) {
   const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
@@ -173,13 +220,14 @@ export function renderChart(series, rangeLabel, since, until, rangeName) {
     const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
     const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
     state.chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
+    state.chart.xAxis[0].update({ plotBands: buildPlotBands(events, since, until) }, false);
     state.chart.series[0].setData(solar, false, { duration: 400 });
     state.chart.series[1].setData(load,  true,  { duration: 400 });
     return;
   }
 
   if (state.chart) { try { state.chart.destroy(); } catch (_) {} state.chart = null; }
-  state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until));
+  state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until, events));
   state.chartRangeName = rangeName || null;
 }
 
@@ -286,7 +334,7 @@ export async function fetchAndRender(since, until, label, rangeName) {
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
     updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
-    renderChart(data.series, label, chartSince, until, rangeName);
+    renderChart(data.series, label, chartSince, until, rangeName, state.maintenanceEvents);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
   } finally {

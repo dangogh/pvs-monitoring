@@ -23,6 +23,9 @@ export const state = {
   positionToSerial: {},
   serialToLabel:    {},
   mapLoaded:        false,
+
+  // Maintenance events
+  maintenanceEvents: [],
 };
 
 export const DEVICES_REFRESH_MS = 30_000;
