@@ -54,5 +54,6 @@ type Store interface {
 	ListOpenInverterOutages(ctx context.Context) ([]string, error)
 	SaveMaintenanceEvent(ctx context.Context, e MaintenanceEvent) (int64, error)
 	ListMaintenanceEvents(ctx context.Context) ([]MaintenanceEvent, error)
+	Checkpoint(ctx context.Context) error
 	Close() error
 }

@@ -63,7 +63,8 @@ func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, e pvs.MaintenanceEve
 func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]pvs.MaintenanceEvent, error) {
 	return f.maintenanceEvents, f.maintenanceErr
 }
-func (f *fakeStore) Close() error { return nil }
+func (f *fakeStore) Checkpoint(_ context.Context) error { return nil }
+func (f *fakeStore) Close() error                       { return nil }
 
 func newServer(store pvs.Store) *apiServer {
 	return &apiServer{store: store}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/pvs"
@@ -91,6 +92,25 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 			}
 		}()
 		logger.Info("device list poller starting", "url", cfg.DeviceList.URL, "interval", cfg.DeviceList.Interval.Duration())
+	}
+
+	if store != nil {
+		go func() {
+			t := time.NewTicker(2 * time.Hour)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if err := store.Checkpoint(ctx); err != nil && ctx.Err() == nil {
+						logger.Warn("wal checkpoint failed", "err", err)
+					} else {
+						logger.Info("wal checkpoint complete")
+					}
+				}
+			}
+		}()
 	}
 
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)

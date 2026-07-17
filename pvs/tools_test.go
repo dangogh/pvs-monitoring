@@ -40,6 +40,7 @@ func (f *toolsStore) CloseInverterOutage(_ context.Context, _ string, _ time.Tim
 func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)                    { return nil, nil }
 func (f *toolsStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error)     { return 0, nil }
 func (f *toolsStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error)           { return nil, nil }
+func (f *toolsStore) Checkpoint(_ context.Context) error                                            { return nil }
 func (f *toolsStore) Close() error                                                                  { return nil }
 
 func freshReading(r *Reading) *Reading {

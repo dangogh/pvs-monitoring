@@ -629,6 +629,11 @@ func (s *Store) ListMaintenanceEvents(ctx context.Context) ([]pvs.MaintenanceEve
 	return events, rows.Err()
 }
 
+func (s *Store) Checkpoint(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)")
+	return err
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }

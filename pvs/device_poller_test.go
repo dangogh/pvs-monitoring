@@ -454,7 +454,8 @@ func (f *fakeDeviceStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceE
 func (f *fakeDeviceStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error) {
 	return nil, nil
 }
-func (f *fakeDeviceStore) Close() error { return nil }
+func (f *fakeDeviceStore) Checkpoint(_ context.Context) error { return nil }
+func (f *fakeDeviceStore) Close() error                       { return nil }
 
 func TestDevicePollerOutageTracking(t *testing.T) {
 	ctx := context.Background()
