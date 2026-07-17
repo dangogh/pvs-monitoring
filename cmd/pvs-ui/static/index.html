@@ -503,6 +503,111 @@
       gap: 0.4rem 0.75rem;
     }
 
+    /* ── Events tab ──────────────────────────────────────────── */
+    .events-table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: auto;
+    }
+
+    #events-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+
+    #events-table th, #events-table td {
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+    }
+
+    #events-table thead th {
+      background: var(--bg);
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    #events-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    #events-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
+
+    .events-empty {
+      padding: 1.25rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .event-form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      max-width: 480px;
+    }
+
+    .event-form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .event-form-row label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .field-hint { font-size: 0.78rem; color: var(--muted); text-transform: none; letter-spacing: 0; }
+
+    .event-form input[type="date"],
+    .event-form select,
+    .event-form textarea {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.9rem;
+      padding: 0.4rem 0.65rem;
+      font-family: inherit;
+      width: 100%;
+    }
+
+    .event-form input:focus,
+    .event-form select:focus,
+    .event-form textarea:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    .event-form textarea { resize: vertical; }
+
+    .event-form-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .event-submit {
+      background: var(--solar);
+      border: none;
+      border-radius: var(--radius);
+      color: #000;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 0.45rem 1rem;
+    }
+
+    .event-submit:focus { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .event-form-status { font-size: 0.85rem; }
+    .event-form-status.ok  { color: var(--export); }
+    .event-form-status.err { color: var(--import); }
+
     /* ── Status bar ──────────────────────────────────────────── */
     #status {
       text-align: center;
@@ -532,6 +637,7 @@
     <button class="tab-btn" role="tab" aria-selected="true"  aria-controls="tab-overview" id="btn-overview">Overview</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panels"   id="btn-panels">Panels</button>
     <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
+    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-events"   id="btn-events">Events</button>
   </div>
 
   <!-- Overview tab -->
@@ -644,6 +750,52 @@
       </table>
     </div>
   </div><!-- /tab-panels -->
+
+  <!-- Events tab -->
+  <div id="tab-events" class="tab-panel" role="tabpanel" aria-labelledby="btn-events">
+
+    <div class="section-heading"><span>Maintenance Events</span></div>
+
+    <div class="events-table-wrap">
+      <table id="events-table" aria-label="Maintenance events">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Type</th>
+            <th scope="col">Notes</th>
+          </tr>
+        </thead>
+        <tbody id="events-tbody"></tbody>
+      </table>
+      <p id="events-empty" class="events-empty" hidden>No events recorded yet.</p>
+    </div>
+
+    <div class="section-heading" style="margin-top:1rem"><span>Record New Event</span></div>
+
+    <form id="event-form" class="event-form" novalidate>
+      <div class="event-form-row">
+        <label for="event-start-date">Start date <span aria-hidden="true">*</span></label>
+        <input type="date" id="event-start-date" required aria-required="true">
+      </div>
+      <div class="event-form-row">
+        <label for="event-end-date">End date <span class="field-hint">(leave blank for single-day)</span></label>
+        <input type="date" id="event-end-date">
+      </div>
+      <div class="event-form-row">
+        <label for="event-type-select">Type <span aria-hidden="true">*</span></label>
+        <select id="event-type-select" required aria-required="true"></select>
+      </div>
+      <div class="event-form-row">
+        <label for="event-notes">Notes</label>
+        <textarea id="event-notes" rows="2" placeholder="Optional description…"></textarea>
+      </div>
+      <div class="event-form-actions">
+        <button type="submit" class="event-submit">Save Event</button>
+        <span id="event-form-status" aria-live="polite"></span>
+      </div>
+    </form>
+
+  </div><!-- /tab-events -->
 
   <!-- Map tab -->
   <div id="tab-map" class="tab-panel" role="tabpanel" aria-labelledby="btn-map">

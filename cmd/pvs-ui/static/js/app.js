@@ -5,6 +5,7 @@ import { initClock } from './display.js';
 import { loadRange, refreshCurrent, initOverview } from './overview.js';
 import { loadPanels, fetchDevices, initPanels } from './panels.js';
 import { initMap, loadMap } from './map.js';
+import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
 
 // ── Tabs ──────────────────────────────────────────────────────
 function switchTab(id) {
@@ -15,6 +16,7 @@ function switchTab(id) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === id));
   if (id === 'tab-panels') loadPanels();
   if (id === 'tab-map')    loadMap();
+  if (id === 'tab-events') loadEvents();
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn =>
@@ -31,7 +33,9 @@ document.querySelectorAll('.tab-btn').forEach(btn =>
   initClock();
   initOverview();
   initPanels();
+  initEvents();
 
+  await fetchMaintenanceEvents();
   loadRange('today');
   initMap();
   fetchDevices().catch(() => {});
