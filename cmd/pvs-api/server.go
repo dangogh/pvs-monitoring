@@ -21,13 +21,16 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
+	mux.HandleFunc("GET /api/maintenance-events", s.handleMaintenanceEvents)
+	mux.HandleFunc("POST /api/maintenance-events", s.handleCreateMaintenanceEvent)
 	return corsMiddleware(mux)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -187,6 +190,74 @@ func toSeriesPoints(pts []pvs.SeriesPoint, bucketSeconds int64) []seriesPoint {
 		out = append(out, seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: &s, LoadKW: &l})
 	}
 	return out
+}
+
+type maintenanceEventResponse struct {
+	ID        int64  `json:"id"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date,omitempty"`
+	EventType string `json:"event_type"`
+	Notes     string `json:"notes,omitempty"`
+}
+
+func (s *apiServer) handleMaintenanceEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := s.store.ListMaintenanceEvents(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resp := make([]maintenanceEventResponse, len(events))
+	for i, e := range events {
+		resp[i] = maintenanceEventResponse{
+			ID:        e.ID,
+			StartDate: e.StartDate,
+			EndDate:   e.EndDate,
+			EventType: e.EventType,
+			Notes:     e.Notes,
+		}
+	}
+	writeJSON(w, resp)
+}
+
+type createMaintenanceEventRequest struct {
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date,omitempty"`
+	EventType string `json:"event_type"`
+	Notes     string `json:"notes,omitempty"`
+}
+
+func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.Request) {
+	var req createMaintenanceEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.StartDate == "" {
+		http.Error(w, "start_date is required", http.StatusBadRequest)
+		return
+	}
+	if req.EventType == "" {
+		http.Error(w, "event_type is required", http.StatusBadRequest)
+		return
+	}
+	id, err := s.store.SaveMaintenanceEvent(r.Context(), pvs.MaintenanceEvent{
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+		EventType: req.EventType,
+		Notes:     req.Notes,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, maintenanceEventResponse{
+		ID:        id,
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+		EventType: req.EventType,
+		Notes:     req.Notes,
+	})
 }
 
 func (s *apiServer) handleDevices(w http.ResponseWriter, r *http.Request) {

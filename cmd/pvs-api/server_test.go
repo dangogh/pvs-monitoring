@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,16 +16,21 @@ import (
 
 // fakeStore is a configurable pvs.Store for handler tests.
 type fakeStore struct {
-	reading      *pvs.Reading
-	readingErr   error
-	energy       pvs.EnergyDelta
-	energyErr    error
-	avg          pvs.PowerAvg
-	avgErr       error
-	series       []pvs.SeriesPoint
-	seriesErr    error
-	inverters    []pvs.InverterDevice
-	invertersErr error
+	reading           *pvs.Reading
+	readingErr        error
+	energy            pvs.EnergyDelta
+	energyErr         error
+	avg               pvs.PowerAvg
+	avgErr            error
+	series            []pvs.SeriesPoint
+	seriesErr         error
+	inverters         []pvs.InverterDevice
+	invertersErr      error
+	maintenanceEvents []pvs.MaintenanceEvent
+	maintenanceErr    error
+	savedEvent        *pvs.MaintenanceEvent
+	savedEventID      int64
+	savedEventErr     error
 }
 
 func (f *fakeStore) SaveReading(_ context.Context, _ *pvs.Reading) error { return nil }
@@ -49,10 +55,15 @@ func (f *fakeStore) LatestInverters(_ context.Context) ([]pvs.InverterDevice, er
 func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]pvs.AuxDevice, error)        { return nil, nil }
 func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
 func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
-func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)                      { return nil, nil }
-func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, _ pvs.MaintenanceEvent) (int64, error)   { return 0, nil }
-func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]pvs.MaintenanceEvent, error)         { return nil, nil }
-func (f *fakeStore) Close() error                                                                    { return nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error) { return nil, nil }
+func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, e pvs.MaintenanceEvent) (int64, error) {
+	f.savedEvent = &e
+	return f.savedEventID, f.savedEventErr
+}
+func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]pvs.MaintenanceEvent, error) {
+	return f.maintenanceEvents, f.maintenanceErr
+}
+func (f *fakeStore) Close() error { return nil }
 
 func newServer(store pvs.Store) *apiServer {
 	return &apiServer{store: store}
@@ -350,6 +361,137 @@ func TestToSeriesPoints_Gap(t *testing.T) {
 	}
 	if got2[1].SolarKW != nil || got2[1].LoadKW != nil {
 		t.Errorf("middle point should be null sentinel, got %+v", got2[1])
+	}
+}
+
+// --- handleMaintenanceEvents (GET) ---
+
+func TestHandleMaintenanceEvents_Empty(t *testing.T) {
+	w := httptest.NewRecorder()
+	newServer(&fakeStore{}).handleMaintenanceEvents(w, httptest.NewRequest(http.MethodGet, "/api/maintenance-events", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got []maintenanceEventResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("want empty slice, got %d items", len(got))
+	}
+}
+
+func TestHandleMaintenanceEvents_OK(t *testing.T) {
+	store := &fakeStore{
+		maintenanceEvents: []pvs.MaintenanceEvent{
+			{ID: 1, StartDate: "2026-07-02", EndDate: "2026-07-10", EventType: "hvac_outage", Notes: "heat pump failed"},
+			{ID: 2, StartDate: "2026-08-01", EventType: "panel_cleaning"},
+		},
+	}
+	w := httptest.NewRecorder()
+	newServer(store).handleMaintenanceEvents(w, httptest.NewRequest(http.MethodGet, "/api/maintenance-events", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got []maintenanceEventResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 events, got %d", len(got))
+	}
+	if got[0].StartDate != "2026-07-02" || got[0].EndDate != "2026-07-10" || got[0].EventType != "hvac_outage" {
+		t.Errorf("unexpected first event: %+v", got[0])
+	}
+	if got[1].EndDate != "" {
+		t.Errorf("want empty end_date for single-day event, got %q", got[1].EndDate)
+	}
+}
+
+func TestHandleMaintenanceEvents_StoreError(t *testing.T) {
+	store := &fakeStore{maintenanceErr: errors.New("db fail")}
+	w := httptest.NewRecorder()
+	newServer(store).handleMaintenanceEvents(w, httptest.NewRequest(http.MethodGet, "/api/maintenance-events", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", w.Code)
+	}
+}
+
+// --- handleCreateMaintenanceEvent (POST) ---
+
+func TestHandleCreateMaintenanceEvent_OK(t *testing.T) {
+	store := &fakeStore{savedEventID: 42}
+	body := `{"start_date":"2026-08-01","event_type":"panel_cleaning","notes":"annual clean"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	newServer(store).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var got maintenanceEventResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ID != 42 || got.StartDate != "2026-08-01" || got.EventType != "panel_cleaning" {
+		t.Errorf("unexpected response: %+v", got)
+	}
+	if store.savedEvent == nil || store.savedEvent.StartDate != "2026-08-01" {
+		t.Errorf("event not saved correctly: %+v", store.savedEvent)
+	}
+}
+
+func TestHandleCreateMaintenanceEvent_WithEndDate(t *testing.T) {
+	store := &fakeStore{savedEventID: 1}
+	body := `{"start_date":"2026-07-02","end_date":"2026-07-10","event_type":"hvac_outage"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
+	newServer(store).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d", w.Code)
+	}
+	if store.savedEvent.EndDate != "2026-07-10" {
+		t.Errorf("want end_date 2026-07-10, got %q", store.savedEvent.EndDate)
+	}
+}
+
+func TestHandleCreateMaintenanceEvent_MissingStartDate(t *testing.T) {
+	body := `{"event_type":"panel_cleaning"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
+	newServer(&fakeStore{}).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateMaintenanceEvent_MissingEventType(t *testing.T) {
+	body := `{"start_date":"2026-08-01"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
+	newServer(&fakeStore{}).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateMaintenanceEvent_InvalidJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader("not json"))
+	newServer(&fakeStore{}).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestHandleCreateMaintenanceEvent_StoreError(t *testing.T) {
+	store := &fakeStore{savedEventErr: errors.New("db fail")}
+	body := `{"start_date":"2026-08-01","event_type":"panel_cleaning"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
+	newServer(store).handleCreateMaintenanceEvent(w, r)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", w.Code)
 	}
 }
 
