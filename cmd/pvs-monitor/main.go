@@ -96,6 +96,14 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 
 	if store != nil {
 		go func() {
+			checkpoint := func() {
+				if err := store.Checkpoint(ctx); err != nil && ctx.Err() == nil {
+					logger.Warn("wal checkpoint failed", "err", err)
+				} else {
+					logger.Info("wal checkpoint complete")
+				}
+			}
+			checkpoint()
 			t := time.NewTicker(2 * time.Hour)
 			defer t.Stop()
 			for {
@@ -103,11 +111,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					if err := store.Checkpoint(ctx); err != nil && ctx.Err() == nil {
-						logger.Warn("wal checkpoint failed", "err", err)
-					} else {
-						logger.Info("wal checkpoint complete")
-					}
+					checkpoint()
 				}
 			}
 		}()
