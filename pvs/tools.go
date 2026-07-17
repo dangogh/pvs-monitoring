@@ -64,12 +64,6 @@ func RegisterTools(s *mcp.Server, store Store, cfg config.Config) {
 		return deviceList(ctx, store)
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_maintenance_events",
-		Description: "Returns recorded maintenance events such as panel cleanings and equipment outages. Use this when analyzing production anomalies to check for known system events in the relevant time period.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
-		return maintenanceEvents(ctx, store)
-	})
 }
 
 func latestReading(ctx context.Context, store Store, staleThreshold time.Duration) (*Reading, error) {
@@ -265,38 +259,6 @@ func deviceList(ctx context.Context, store Store) (*mcp.CallToolResult, any, err
 		Inverters: inverters,
 		Aux:       aux,
 	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
-}
-
-type maintenanceEventResult struct {
-	ID        int64  `json:"id"`
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date,omitempty"`
-	EventType string `json:"event_type"`
-	Notes     string `json:"notes,omitempty"`
-}
-
-func maintenanceEvents(ctx context.Context, store Store) (*mcp.CallToolResult, any, error) {
-	events, err := store.ListMaintenanceEvents(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	results := make([]maintenanceEventResult, len(events))
-	for i, e := range events {
-		results[i] = maintenanceEventResult{
-			ID:        e.ID,
-			StartDate: e.StartDate,
-			EndDate:   e.EndDate,
-			EventType: e.EventType,
-			Notes:     e.Notes,
-		}
-	}
-	data, err := json.Marshal(results)
 	if err != nil {
 		return nil, nil, err
 	}
