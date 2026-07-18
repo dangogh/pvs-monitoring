@@ -6,6 +6,6 @@ FROM inverter_readings ir
 INNER JOIN (SELECT serial, MAX(received_at) AS max_ra FROM inverter_readings GROUP BY serial) latest
         ON ir.serial = latest.serial AND ir.received_at = latest.max_ra
 LEFT JOIN (SELECT serial, MAX(lifetime_kwh) - MIN(lifetime_kwh) AS today_kwh
-           FROM inverter_readings WHERE received_at >= ? GROUP BY serial) today
+           FROM inverter_readings WHERE received_at >= ? AND lifetime_kwh > 0 GROUP BY serial) today
        ON ir.serial = today.serial
 ORDER BY ir.serial
