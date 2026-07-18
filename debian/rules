@@ -43,3 +43,10 @@ override_dh_auto_test:
 
 override_dh_strip:
 	# Skip stripping for Go binaries
+
+override_dh_makeshlibs:
+	# Static Go binaries (CGO_ENABLED=0) have no shared library dependencies,
+	# and running this needs a cross-arch objdump we don't install.
+
+override_dh_shlibdeps:
+	# Same reasoning as dh_makeshlibs above.
