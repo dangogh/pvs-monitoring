@@ -52,6 +52,7 @@ export async function initMap() {
     container.insertAdjacentHTML('beforeend', mapDoc.body.innerHTML);
     document.getElementById('btn-map').style.display = '';
     state.mapLoaded = true;
+    state.mapPanelEls = null;
   } catch (_) {}
 }
 
@@ -71,24 +72,35 @@ export async function loadMap() {
   finally { overlay?.remove(); }
   const devices = Object.fromEntries(state.panelsData.map(d => [d.serial, d]));
 
-  document.querySelectorAll('#map-container .panel').forEach(el => {
-    const label  = el.textContent.trim();
+  if (!state.mapPanelEls) {
+    state.mapPanelEls = Array.from(document.querySelectorAll('#map-container .panel')).map(el => ({
+      el, label: el.textContent.trim(),
+    }));
+  }
+
+  state.mapPanelEls.forEach(({ el, label }) => {
     const pos    = normalisePosition(label);
     const serial = state.positionToSerial[pos];
     const dev    = serial ? devices[serial] : null;
 
-    el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
-    if (!dev) {
-      el.classList.add('state-unknown');
-      el.title = label + ': no data';
-    } else {
-      el.classList.add(dev.state === 'working' ? 'state-working'
+    const stateClass = !dev ? 'state-unknown'
+                     : dev.state === 'working' ? 'state-working'
                      : dev.state === 'error'   ? 'state-error'
-                     : 'state-other');
-      el.title = label + ' · ' + dev.state_descr + ' · ' + fmt1(dev.power_kw) + ' kW';
-    }
+                     : 'state-other';
+    const title = !dev ? label + ': no data'
+                        : label + ' · ' + dev.state_descr + ' · ' + fmt1(dev.power_kw) + ' kW';
 
-    el.onclick = () => showMapDetail(el, serial, dev, label);
+    if (!el.classList.contains(stateClass)) {
+      el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
+      el.classList.add(stateClass);
+    }
+    if (el.title !== title) el.title = title;
+
+    el._panelSerial = serial;
+    el._panelDev = dev;
+    if (!el.onclick) {
+      el.onclick = () => showMapDetail(el, el._panelSerial, el._panelDev, label);
+    }
   });
 }
 
