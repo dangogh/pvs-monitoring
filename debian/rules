@@ -1,15 +1,21 @@
 #!/usr/bin/make -f
 
+include /usr/share/dpkg/architecture.mk
+
 DESTDIR ?= debian/pvs-monitoring
 export PATH := $(HOME)/go/bin:$(PATH)
 
 %:
 	dh $@ --without usrlocal --without dwz
 
+# DEB_HOST_ARCH (arm64/amd64) matches Go's GOARCH naming for our supported
+# targets, so it can be passed straight through. Only dh_auto_build cross-
+# compiles for the host arch; dh_auto_test below builds/runs natively so
+# tests don't require emulation.
 override_dh_auto_build:
-	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
-	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
-	go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
 
 override_dh_auto_install:
 	# Install binaries
@@ -37,3 +43,10 @@ override_dh_auto_test:
 
 override_dh_strip:
 	# Skip stripping for Go binaries
+
+override_dh_makeshlibs:
+	# Static Go binaries (CGO_ENABLED=0) have no shared library dependencies,
+	# and running this needs a cross-arch objdump we don't install.
+
+override_dh_shlibdeps:
+	# Same reasoning as dh_makeshlibs above.
