@@ -22,22 +22,21 @@ lint:
 cover: test
 	go tool cover -html=coverage.out
 
+DEB_ARCH ?= arm64
+
 deb-linux:
 	$(eval GIT_TAG := $(shell git describe --tags --match 'v[0-9]*' 2>/dev/null | sed 's/^v//'))
 	$(eval GIT_BRANCH := $(shell git rev-parse --abbrev-ref HEAD))
 	$(eval DIRTY := $(shell git diff --quiet && git diff --cached --quiet || echo ~dirty))
 	$(eval VERSION := $(GIT_TAG)$(DIRTY))
 	dch -b --newversion $(VERSION) --distribution unstable --force-distribution "git $(VERSION)"
-	dpkg-buildpackage -us -uc -b $(DPKG_FLAGS)
+	dpkg-buildpackage -us -uc -b -a$(DEB_ARCH) $(DPKG_FLAGS)
 	mkdir -p dist
 	mv ../pvs-monitoring_*.deb dist/ || true
 
+# Cross-compiles natively (no QEMU/Docker needed since the Go build has no
+# cgo dependency) for DEB_ARCH, defaulting to arm64.
 deb:
 	mkdir -p dist
-	chmod a+w dist
-	docker build --platform linux/arm64 -t pvs-deb-builder -f Dockerfile.deb .
-	docker run --rm --platform linux/arm64 \
-		-v "$(CURDIR)/dist":/out \
-		pvs-deb-builder sh -c \
-		"cp -r /build /tmp/src && cd /tmp/src && make deb-linux DPKG_FLAGS=-d && cp dist/*.deb /out/"
+	$(MAKE) deb-linux DPKG_FLAGS=-d
 
