@@ -41,6 +41,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/005_rollup_tables.sql"),
 	mustSQL("sql/migrations/006_maintenance_events.sql"),
 	mustSQL("sql/migrations/007_maintenance_event_timestamps.sql"),
+	mustSQL("sql/migrations/008_inverter_serial_received_index.sql"),
 }
 
 var (
