@@ -476,7 +476,8 @@ func (s *Store) SaveDevices(ctx context.Context, devices []pvs.Device, receivedA
 }
 
 func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, error) {
-	midnight := time.Now().Truncate(24 * time.Hour).Unix()
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
 	rows, err := s.db.QueryContext(ctx, sqlLatestInverters, midnight)
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
