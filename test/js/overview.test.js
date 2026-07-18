@@ -121,6 +121,21 @@ describe('buildChartOptions', () => {
     const opts = buildChartOptions(series, 'Today', 0, 1);
     expect(opts.exporting.enabled).toBe(false);
   });
+
+  it('selection handler shows the create-event button and allows default zoom', () => {
+    document.body.innerHTML = '<button id="create-event-btn" hidden></button>';
+    const opts = buildChartOptions(series, 'Today', 0, 1);
+    const result = opts.chart.events.selection({ xAxis: [{ min: 500, max: 800 }] });
+    expect(result).toBe(true);
+    expect(document.getElementById('create-event-btn').hidden).toBe(false);
+  });
+
+  it('selection handler hides the create-event button on zoom reset', () => {
+    document.body.innerHTML = '<button id="create-event-btn"></button>';
+    const opts = buildChartOptions(series, 'Today', 0, 1);
+    opts.chart.events.selection({ resetSelection: true });
+    expect(document.getElementById('create-event-btn').hidden).toBe(true);
+  });
 });
 
 // ── computeShift ─────────────────────────────────────────────

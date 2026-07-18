@@ -584,3 +584,39 @@ func TestSaveReadingPersistsAllFields(t *testing.T) {
 	assert.Equal(t, r.LoadKWh, loadKWh)
 	assert.Equal(t, r.NetKWh, netKWh)
 }
+
+func TestSaveAndListMaintenanceEvents(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	start := time.Date(2026, 7, 17, 14, 30, 0, 0, time.UTC)
+	end := time.Date(2026, 7, 17, 16, 0, 0, 0, time.UTC)
+
+	id, err := s.SaveMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		StartAt:   start,
+		EndAt:     end,
+		EventType: "hvac_outage",
+		Notes:     "heat pump failed",
+	})
+	require.NoError(t, err)
+	assert.NotZero(t, id)
+
+	_, err = s.SaveMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		StartAt:   start.Add(24 * time.Hour),
+		EventType: "panel_cleaning",
+	})
+	require.NoError(t, err)
+
+	events, err := s.ListMaintenanceEvents(ctx)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+
+	// ORDER BY start_at DESC: the later-starting panel_cleaning event comes first.
+	assert.Equal(t, "panel_cleaning", events[0].EventType)
+	assert.True(t, events[0].EndAt.IsZero())
+
+	assert.Equal(t, start.Unix(), events[1].StartAt.Unix())
+	assert.Equal(t, end.Unix(), events[1].EndAt.Unix())
+	assert.Equal(t, "hvac_outage", events[1].EventType)
+	assert.Equal(t, "heat pump failed", events[1].Notes)
+}

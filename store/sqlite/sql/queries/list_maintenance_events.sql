@@ -1,3 +1,3 @@
-SELECT id, start_date, end_date, event_type, notes, created_at
+SELECT id, start_at, end_at, event_type, notes, created_at
 FROM maintenance_events
-ORDER BY start_date DESC
+ORDER BY start_at DESC
