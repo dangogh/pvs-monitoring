@@ -37,15 +37,25 @@ function renderEventsTable() {
 
   for (const e of events) {
     const tr = document.createElement('tr');
-    const dateStr = e.end_date && e.end_date !== e.start_date
-      ? e.start_date + ' – ' + e.end_date
-      : e.start_date;
+    const dateStr = fmtEventRange(e.start_at, e.end_at);
     tr.innerHTML =
       '<td>' + escHtml(dateStr) + '</td>' +
       '<td>' + escHtml(fmtEventType(e.event_type)) + '</td>' +
       '<td>' + escHtml(e.notes || '—') + '</td>';
     tbody.appendChild(tr);
   }
+}
+
+function fmtDateTime(d) {
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
+    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtEventRange(startAt, endAt) {
+  const start = new Date(startAt);
+  if (!endAt) return fmtDateTime(start);
+  const end = new Date(endAt);
+  return fmtDateTime(start) + ' – ' + fmtDateTime(end);
 }
 
 export function loadEvents() {
@@ -58,6 +68,28 @@ function escHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Format a Date for an <input type="datetime-local"> value, in local time.
+function toDateTimeInputValue(d) {
+  const y   = d.getFullYear();
+  const mo  = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h   = String(d.getHours()).padStart(2, '0');
+  const mi  = String(d.getMinutes()).padStart(2, '0');
+  return y + '-' + mo + '-' + day + 'T' + h + ':' + mi;
+}
+
+// Prefill the event form's start/end from a chart selection (ms since epoch).
+export function prefillEventRange(minMs, maxMs) {
+  const startEl = document.getElementById('event-start-at');
+  const endEl   = document.getElementById('event-end-at');
+  const typeSel = document.getElementById('event-type-select');
+  if (!startEl || !endEl) return;
+
+  startEl.value = toDateTimeInputValue(new Date(minMs));
+  endEl.value   = toDateTimeInputValue(new Date(maxMs));
+  typeSel?.focus();
 }
 
 export function initEvents() {
@@ -77,16 +109,16 @@ export function initEvents() {
   form.addEventListener('submit', async e => {
     e.preventDefault();
     statusEl.textContent = '';
-    const startDate = document.getElementById('event-start-date').value;
-    const endDate   = document.getElementById('event-end-date').value;
+    const startAt   = document.getElementById('event-start-at').value;
+    const endAt     = document.getElementById('event-end-at').value;
     const eventType = typeSelect.value;
     const notes     = document.getElementById('event-notes').value.trim();
 
-    if (!startDate || !eventType) return;
+    if (!startAt || !eventType) return;
 
-    const body = { start_date: startDate, event_type: eventType };
-    if (endDate)  body.end_date = endDate;
-    if (notes)    body.notes    = notes;
+    const body = { start_at: new Date(startAt).toISOString(), event_type: eventType };
+    if (endAt)  body.end_at = new Date(endAt).toISOString();
+    if (notes)  body.notes  = notes;
 
     try {
       const resp = await fetch(state.apiBase + '/api/maintenance-events', {

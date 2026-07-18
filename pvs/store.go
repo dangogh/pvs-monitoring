@@ -30,8 +30,8 @@ type SeriesPoint struct {
 // MaintenanceEvent records a maintenance activity or system event.
 type MaintenanceEvent struct {
 	ID        int64
-	StartDate string // YYYY-MM-DD
-	EndDate   string // YYYY-MM-DD, empty for single-day events
+	StartAt   time.Time
+	EndAt     time.Time // zero if unset
 	EventType string
 	Notes     string
 	CreatedAt time.Time

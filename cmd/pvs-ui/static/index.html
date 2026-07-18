@@ -271,6 +271,22 @@
 
     #chart { height: 380px; }
 
+    #create-event-btn {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 5;
+      background: var(--solar);
+      color: #1e293b;
+      border: none;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #create-event-btn:hover { filter: brightness(1.08); }
+
     #no-data {
       display: none;
       height: 380px;
@@ -566,7 +582,7 @@
 
     .field-hint { font-size: 0.78rem; color: var(--muted); text-transform: none; letter-spacing: 0; }
 
-    .event-form input[type="date"],
+    .event-form input[type="datetime-local"],
     .event-form select,
     .event-form textarea {
       background: var(--bg);
@@ -700,6 +716,7 @@
     </div>
 
     <section aria-label="Power chart" id="chart-container">
+      <button id="create-event-btn" type="button" hidden>Log event for this range</button>
       <div id="chart"></div>
       <div id="no-data" role="status">No data for this period.</div>
     </section>
@@ -774,12 +791,12 @@
 
     <form id="event-form" class="event-form" novalidate>
       <div class="event-form-row">
-        <label for="event-start-date">Start date <span aria-hidden="true">*</span></label>
-        <input type="date" id="event-start-date" required aria-required="true">
+        <label for="event-start-at">Start <span aria-hidden="true">*</span></label>
+        <input type="datetime-local" id="event-start-at" required aria-required="true">
       </div>
       <div class="event-form-row">
-        <label for="event-end-date">End date <span class="field-hint">(leave blank for single-day)</span></label>
-        <input type="date" id="event-end-date">
+        <label for="event-end-at">End <span class="field-hint">(leave blank for a single point in time)</span></label>
+        <input type="datetime-local" id="event-end-at">
       </div>
       <div class="event-form-row">
         <label for="event-type-select">Type <span aria-hidden="true">*</span></label>

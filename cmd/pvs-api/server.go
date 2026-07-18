@@ -193,11 +193,11 @@ func toSeriesPoints(pts []pvs.SeriesPoint, bucketSeconds int64) []seriesPoint {
 }
 
 type maintenanceEventResponse struct {
-	ID        int64  `json:"id"`
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date,omitempty"`
-	EventType string `json:"event_type"`
-	Notes     string `json:"notes,omitempty"`
+	ID        int64      `json:"id"`
+	StartAt   time.Time  `json:"start_at"`
+	EndAt     *time.Time `json:"end_at,omitempty"`
+	EventType string     `json:"event_type"`
+	Notes     string     `json:"notes,omitempty"`
 }
 
 func (s *apiServer) handleMaintenanceEvents(w http.ResponseWriter, r *http.Request) {
@@ -210,8 +210,8 @@ func (s *apiServer) handleMaintenanceEvents(w http.ResponseWriter, r *http.Reque
 	for i, e := range events {
 		resp[i] = maintenanceEventResponse{
 			ID:        e.ID,
-			StartDate: e.StartDate,
-			EndDate:   e.EndDate,
+			StartAt:   e.StartAt,
+			EndAt:     optionalTime(e.EndAt),
 			EventType: e.EventType,
 			Notes:     e.Notes,
 		}
@@ -219,11 +219,18 @@ func (s *apiServer) handleMaintenanceEvents(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, resp)
 }
 
+func optionalTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
+}
+
 type createMaintenanceEventRequest struct {
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date,omitempty"`
-	EventType string `json:"event_type"`
-	Notes     string `json:"notes,omitempty"`
+	StartAt   time.Time  `json:"start_at"`
+	EndAt     *time.Time `json:"end_at,omitempty"`
+	EventType string     `json:"event_type"`
+	Notes     string     `json:"notes,omitempty"`
 }
 
 func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.Request) {
@@ -232,20 +239,23 @@ func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.StartDate == "" {
-		http.Error(w, "start_date is required", http.StatusBadRequest)
+	if req.StartAt.IsZero() {
+		http.Error(w, "start_at is required", http.StatusBadRequest)
 		return
 	}
 	if req.EventType == "" {
 		http.Error(w, "event_type is required", http.StatusBadRequest)
 		return
 	}
-	id, err := s.store.SaveMaintenanceEvent(r.Context(), pvs.MaintenanceEvent{
-		StartDate: req.StartDate,
-		EndDate:   req.EndDate,
+	event := pvs.MaintenanceEvent{
+		StartAt:   req.StartAt,
 		EventType: req.EventType,
 		Notes:     req.Notes,
-	})
+	}
+	if req.EndAt != nil {
+		event.EndAt = *req.EndAt
+	}
+	id, err := s.store.SaveMaintenanceEvent(r.Context(), event)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -253,10 +263,10 @@ func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusCreated)
 	writeJSON(w, maintenanceEventResponse{
 		ID:        id,
-		StartDate: req.StartDate,
-		EndDate:   req.EndDate,
-		EventType: req.EventType,
-		Notes:     req.Notes,
+		StartAt:   event.StartAt,
+		EndAt:     optionalTime(event.EndAt),
+		EventType: event.EventType,
+		Notes:     event.Notes,
 	})
 }
 

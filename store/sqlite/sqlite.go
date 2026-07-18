@@ -40,6 +40,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/004_inverter_outages.sql"),
 	mustSQL("sql/migrations/005_rollup_tables.sql"),
 	mustSQL("sql/migrations/006_maintenance_events.sql"),
+	mustSQL("sql/migrations/007_maintenance_event_timestamps.sql"),
 }
 
 var (
@@ -595,12 +596,12 @@ func (s *Store) ListOpenInverterOutages(ctx context.Context) ([]string, error) {
 }
 
 func (s *Store) SaveMaintenanceEvent(ctx context.Context, e pvs.MaintenanceEvent) (int64, error) {
-	var endDate any
-	if e.EndDate != "" {
-		endDate = e.EndDate
+	var endAt any
+	if !e.EndAt.IsZero() {
+		endAt = e.EndAt.Unix()
 	}
 	res, err := s.db.ExecContext(ctx, sqlInsertMaintenanceEvent,
-		e.StartDate, endDate, e.EventType, e.Notes, time.Now().Unix())
+		e.StartAt.Unix(), endAt, e.EventType, e.Notes, time.Now().Unix())
 	if err != nil {
 		return 0, fmt.Errorf("insert maintenance event: %w", err)
 	}
@@ -617,12 +618,16 @@ func (s *Store) ListMaintenanceEvents(ctx context.Context) ([]pvs.MaintenanceEve
 	var events []pvs.MaintenanceEvent
 	for rows.Next() {
 		var e pvs.MaintenanceEvent
-		var endDate sql.NullString
+		var startAt int64
+		var endAt sql.NullInt64
 		var createdAt int64
-		if err := rows.Scan(&e.ID, &e.StartDate, &endDate, &e.EventType, &e.Notes, &createdAt); err != nil {
+		if err := rows.Scan(&e.ID, &startAt, &endAt, &e.EventType, &e.Notes, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan maintenance event: %w", err)
 		}
-		e.EndDate = endDate.String
+		e.StartAt = time.Unix(startAt, 0)
+		if endAt.Valid {
+			e.EndAt = time.Unix(endAt.Int64, 0)
+		}
 		e.CreatedAt = time.Unix(createdAt, 0)
 		events = append(events, e)
 	}

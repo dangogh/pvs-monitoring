@@ -2,6 +2,16 @@
 
 import { fmt1, fmtKWh, setValueAnimated, flashCard } from './display.js';
 import { state } from './state.js';
+import { prefillEventRange } from './events.js';
+
+// ── Chart-selection → create-event button ───────────────────────
+let pendingSelection = null;
+
+function toggleCreateEventButton(show) {
+  const btn = document.getElementById('create-event-btn');
+  if (btn) btn.hidden = !show;
+  if (!show) pendingSelection = null;
+}
 
 // ── Current reading ───────────────────────────────────────────
 export function updateCurrent(c) {
@@ -90,11 +100,9 @@ export function buildPlotBands(events, since, until) {
   const untilMs = until * 1000;
   const bands = [];
   for (const e of events) {
-    const start = new Date(e.start_date).getTime();
-    // end_date is inclusive; extend to end of that day. If absent, use start.
-    const end = e.end_date
-      ? new Date(e.end_date).getTime() + 86400_000
-      : start + 86400_000;
+    const start = new Date(e.start_at).getTime();
+    // No end_at means a point-in-time event; widen slightly so it's visible on the chart.
+    const end = e.end_at ? new Date(e.end_at).getTime() : start + 3600_000;
     if (end < sinceMs || start > untilMs) continue;
     bands.push({
       from:  Math.max(start, sinceMs),
@@ -125,6 +133,20 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
       style: { fontFamily: 'inherit', color: '#f1f5f9' },
       animation: false,
       zoomType: 'x',
+      events: {
+        selection: function (event) {
+          if (event.resetSelection) {
+            toggleCreateEventButton(false);
+            return true;
+          }
+          const axis = event.xAxis && event.xAxis[0];
+          if (axis) {
+            pendingSelection = { min: axis.min, max: axis.max };
+            toggleCreateEventButton(true);
+          }
+          return true;
+        },
+      },
       resetZoomButton: {
         theme: {
           fill: '#1e293b',
@@ -227,6 +249,7 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
   }
 
   if (state.chart) { try { state.chart.destroy(); } catch (_) {} state.chart = null; }
+  toggleCreateEventButton(false);
   state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until, events));
   state.chartRangeName = rangeName || null;
 }
@@ -479,6 +502,15 @@ export function initOverview() {
 
   _prevBtn.addEventListener('click', () => shiftRange(-1));
   _nextBtn.addEventListener('click', () => shiftRange(+1));
+
+  const createEventBtn = document.getElementById('create-event-btn');
+  createEventBtn?.addEventListener('click', () => {
+    if (!pendingSelection) return;
+    const { min, max } = pendingSelection;
+    document.getElementById('btn-events')?.click();
+    prefillEventRange(min, max);
+    toggleCreateEventButton(false);
+  });
 
   updateNavButtons();
 }

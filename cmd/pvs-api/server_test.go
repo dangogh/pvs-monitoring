@@ -383,10 +383,13 @@ func TestHandleMaintenanceEvents_Empty(t *testing.T) {
 }
 
 func TestHandleMaintenanceEvents_OK(t *testing.T) {
+	start1 := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	end1 := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	start2 := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	store := &fakeStore{
 		maintenanceEvents: []pvs.MaintenanceEvent{
-			{ID: 1, StartDate: "2026-07-02", EndDate: "2026-07-10", EventType: "hvac_outage", Notes: "heat pump failed"},
-			{ID: 2, StartDate: "2026-08-01", EventType: "panel_cleaning"},
+			{ID: 1, StartAt: start1, EndAt: end1, EventType: "hvac_outage", Notes: "heat pump failed"},
+			{ID: 2, StartAt: start2, EventType: "panel_cleaning"},
 		},
 	}
 	w := httptest.NewRecorder()
@@ -401,11 +404,11 @@ func TestHandleMaintenanceEvents_OK(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("want 2 events, got %d", len(got))
 	}
-	if got[0].StartDate != "2026-07-02" || got[0].EndDate != "2026-07-10" || got[0].EventType != "hvac_outage" {
+	if !got[0].StartAt.Equal(start1) || got[0].EndAt == nil || !got[0].EndAt.Equal(end1) || got[0].EventType != "hvac_outage" {
 		t.Errorf("unexpected first event: %+v", got[0])
 	}
-	if got[1].EndDate != "" {
-		t.Errorf("want empty end_date for single-day event, got %q", got[1].EndDate)
+	if got[1].EndAt != nil {
+		t.Errorf("want nil end_at for single-day event, got %v", got[1].EndAt)
 	}
 }
 
@@ -422,7 +425,7 @@ func TestHandleMaintenanceEvents_StoreError(t *testing.T) {
 
 func TestHandleCreateMaintenanceEvent_OK(t *testing.T) {
 	store := &fakeStore{savedEventID: 42}
-	body := `{"start_date":"2026-08-01","event_type":"panel_cleaning","notes":"annual clean"}`
+	body := `{"start_at":"2026-08-01T00:00:00Z","event_type":"panel_cleaning","notes":"annual clean"}`
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
@@ -434,25 +437,27 @@ func TestHandleCreateMaintenanceEvent_OK(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.ID != 42 || got.StartDate != "2026-08-01" || got.EventType != "panel_cleaning" {
+	wantStart := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	if got.ID != 42 || !got.StartAt.Equal(wantStart) || got.EventType != "panel_cleaning" {
 		t.Errorf("unexpected response: %+v", got)
 	}
-	if store.savedEvent == nil || store.savedEvent.StartDate != "2026-08-01" {
+	if store.savedEvent == nil || !store.savedEvent.StartAt.Equal(wantStart) {
 		t.Errorf("event not saved correctly: %+v", store.savedEvent)
 	}
 }
 
 func TestHandleCreateMaintenanceEvent_WithEndDate(t *testing.T) {
 	store := &fakeStore{savedEventID: 1}
-	body := `{"start_date":"2026-07-02","end_date":"2026-07-10","event_type":"hvac_outage"}`
+	body := `{"start_at":"2026-07-02T00:00:00Z","end_at":"2026-07-10T00:00:00Z","event_type":"hvac_outage"}`
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
 	newServer(store).handleCreateMaintenanceEvent(w, r)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("want 201, got %d", w.Code)
 	}
-	if store.savedEvent.EndDate != "2026-07-10" {
-		t.Errorf("want end_date 2026-07-10, got %q", store.savedEvent.EndDate)
+	wantEnd := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	if !store.savedEvent.EndAt.Equal(wantEnd) {
+		t.Errorf("want end_at %v, got %v", wantEnd, store.savedEvent.EndAt)
 	}
 }
 
@@ -467,7 +472,7 @@ func TestHandleCreateMaintenanceEvent_MissingStartDate(t *testing.T) {
 }
 
 func TestHandleCreateMaintenanceEvent_MissingEventType(t *testing.T) {
-	body := `{"start_date":"2026-08-01"}`
+	body := `{"start_at":"2026-08-01T00:00:00Z"}`
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
 	newServer(&fakeStore{}).handleCreateMaintenanceEvent(w, r)
@@ -487,7 +492,7 @@ func TestHandleCreateMaintenanceEvent_InvalidJSON(t *testing.T) {
 
 func TestHandleCreateMaintenanceEvent_StoreError(t *testing.T) {
 	store := &fakeStore{savedEventErr: errors.New("db fail")}
-	body := `{"start_date":"2026-08-01","event_type":"panel_cleaning"}`
+	body := `{"start_at":"2026-08-01T00:00:00Z","event_type":"panel_cleaning"}`
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/maintenance-events", strings.NewReader(body))
 	newServer(store).handleCreateMaintenanceEvent(w, r)
