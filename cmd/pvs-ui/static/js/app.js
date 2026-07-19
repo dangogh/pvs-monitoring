@@ -4,7 +4,7 @@ import { state, DEVICES_REFRESH_MS } from './state.js';
 import { initClock } from './display.js';
 import { loadRange, refreshCurrent, initOverview } from './overview.js';
 import { loadPanels, fetchDevices, initPanels } from './panels.js';
-import { initMap, loadMap } from './map.js';
+import { initMap, loadMap, initMapAnimation } from './map.js';
 import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
 
 // ── Tabs ──────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ document.querySelectorAll('.tab-btn').forEach(btn =>
   await fetchMaintenanceEvents();
   loadRange('today');
   initMap();
+  initMapAnimation();
   fetchDevices().catch(() => {});
 
   setInterval(refreshCurrent, 5000);

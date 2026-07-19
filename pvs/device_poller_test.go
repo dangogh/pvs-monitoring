@@ -419,7 +419,8 @@ func (f *fakeDeviceStore) LatestInverters(_ context.Context) ([]InverterDevice, 
 	defer f.mu.Unlock()
 	return f.inverters, nil
 }
-func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error) { return nil, nil }
+func (f *fakeDeviceStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) { return nil, nil }
+func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)                        { return nil, nil }
 func (f *fakeDeviceStore) OpenInverterOutage(_ context.Context, serial string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -125,6 +125,172 @@ function detailSection(label, fields) {
   </div>`;
 }
 
+// ── Animation ─────────────────────────────────────────────────────────────────
+
+const anim = {
+  frames: [],      // [{timeMS, bySerial: {serial → powerKW}}]
+  frameIdx: 0,
+  playing: false,
+  timer: null,
+};
+
+function localISONoSec(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function todayMidnight() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+// Map t ∈ [0,1] to a color: gray(0) → amber(0.5) → green(1)
+function powerColor(t) {
+  if (t <= 0.5) {
+    const s = t * 2;
+    const r = Math.round(107 + (251 - 107) * s);
+    const g = Math.round(114 + (191 - 114) * s);
+    const b = Math.round(128 + (36  - 128) * s);
+    return [`rgb(${r},${g},${b})`, s < 0.4 ? '#d1d5db' : '#1c1917'];
+  } else {
+    const s = (t - 0.5) * 2;
+    const r = Math.round(251 + (22  - 251) * s);
+    const g = Math.round(191 + (163 - 191) * s);
+    const b = Math.round(36  + (74  - 36)  * s);
+    return [`rgb(${r},${g},${b})`, '#052e16'];
+  }
+}
+
+function renderFrame(idx) {
+  const frame = anim.frames[idx];
+  if (!frame || !state.mapPanelEls) return;
+
+  const values = Object.values(frame.bySerial);
+  const max = values.length ? Math.max(...values) : 0;
+
+  state.mapPanelEls.forEach(({ el, label }) => {
+    const pos    = normalisePosition(label);
+    const serial = state.positionToSerial[pos];
+    const power  = serial != null ? (frame.bySerial[serial] ?? null) : null;
+
+    if (power === null || max === 0) {
+      el.style.removeProperty('background');
+      el.style.removeProperty('color');
+      el.classList.remove('state-working', 'state-error', 'state-other');
+      el.classList.add('state-unknown');
+    } else {
+      const t = max > 0 ? power / max : 0;
+      const [bg, fg] = powerColor(t);
+      el.style.setProperty('background', bg, 'important');
+      el.style.setProperty('color', fg, 'important');
+      el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
+    }
+    el.title = serial && power !== null
+      ? `${label} · ${fmt1(power)} kW (${max > 0 ? Math.round(power / max * 100) : 0}%)`
+      : `${label}: no data`;
+  });
+
+  const scrubber = document.getElementById('anim-scrubber');
+  if (scrubber) scrubber.value = idx;
+
+  const ts = document.getElementById('anim-timestamp');
+  if (ts) ts.textContent = new Date(frame.timeMS).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function animStep(dir = 1) {
+  anim.frameIdx = Math.max(0, Math.min(anim.frames.length - 1, anim.frameIdx + dir));
+  renderFrame(anim.frameIdx);
+  if (anim.playing && anim.frameIdx >= anim.frames.length - 1) animPause();
+}
+
+function animPlay() {
+  if (!anim.frames.length) return;
+  anim.playing = true;
+  document.getElementById('anim-btn-play').textContent = '⏸';
+  anim.timer = setInterval(() => animStep(1), 300);
+}
+
+function animPause() {
+  anim.playing = false;
+  clearInterval(anim.timer);
+  anim.timer = null;
+  const btn = document.getElementById('anim-btn-play');
+  if (btn) btn.innerHTML = '&#9654;';
+}
+
+function animToggle() {
+  if (anim.playing) animPause(); else {
+    if (anim.frameIdx >= anim.frames.length - 1) anim.frameIdx = 0;
+    animPlay();
+  }
+}
+
+function buildFrames(pts) {
+  const byTime = new Map();
+  for (const p of pts) {
+    let frame = byTime.get(p.t);
+    if (!frame) { frame = { timeMS: p.t, bySerial: {} }; byTime.set(p.t, frame); }
+    frame.bySerial[p.serial] = p.p;
+  }
+  return Array.from(byTime.values()).sort((a, b) => a.timeMS - b.timeMS);
+}
+
+async function loadAnimSeries() {
+  animPause();
+  const since = document.getElementById('anim-since').value;
+  const until = document.getElementById('anim-until').value;
+  if (!since || !until) return;
+  const s = Math.floor(new Date(since).getTime() / 1000);
+  const u = Math.floor(new Date(until).getTime() / 1000);
+  if (s >= u) return;
+
+  try {
+    const resp = await fetch(`${state.apiBase}/api/inverter-series?since=${s}&until=${u}`);
+    if (!resp.ok) return;
+    const pts = await resp.json();
+    anim.frames = buildFrames(pts ?? []);
+    anim.frameIdx = 0;
+    const scrubber = document.getElementById('anim-scrubber');
+    if (scrubber) scrubber.max = Math.max(0, anim.frames.length - 1);
+    document.getElementById('map-container').classList.add('anim-mode');
+    if (anim.frames.length) renderFrame(0);
+  } catch (_) {}
+}
+
+function shiftWindow(factor) {
+  const sinceEl = document.getElementById('anim-since');
+  const untilEl = document.getElementById('anim-until');
+  if (!sinceEl.value || !untilEl.value) return;
+  const s = new Date(sinceEl.value).getTime();
+  const u = new Date(untilEl.value).getTime();
+  const span = u - s;
+  const newSpan = span * factor;
+  const mid = (s + u) / 2;
+  sinceEl.value = localISONoSec(new Date(mid - newSpan / 2));
+  untilEl.value = localISONoSec(new Date(mid + newSpan / 2));
+}
+
+export function initMapAnimation() {
+  const sinceEl = document.getElementById('anim-since');
+  const untilEl = document.getElementById('anim-until');
+  const now = new Date();
+  sinceEl.value = localISONoSec(todayMidnight());
+  untilEl.value = localISONoSec(now);
+
+  document.getElementById('anim-btn-play').addEventListener('click', animToggle);
+  document.getElementById('anim-btn-step-back').addEventListener('click', () => { animPause(); animStep(-1); });
+  document.getElementById('anim-btn-step-fwd').addEventListener('click', () => { animPause(); animStep(1); });
+  document.getElementById('anim-load').addEventListener('click', loadAnimSeries);
+  document.getElementById('anim-half').addEventListener('click', () => shiftWindow(0.5));
+  document.getElementById('anim-double').addEventListener('click', () => shiftWindow(2));
+  document.getElementById('anim-scrubber').addEventListener('input', e => {
+    animPause();
+    anim.frameIdx = parseInt(e.target.value, 10);
+    renderFrame(anim.frameIdx);
+  });
+}
+
 export function showMapDetail(el, serial, dev, label) {
   document.querySelectorAll('#map-container .panel.selected').forEach(p => p.classList.remove('selected'));
   el.classList.add('selected');
