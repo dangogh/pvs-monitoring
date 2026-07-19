@@ -226,12 +226,18 @@ function animToggle() {
   }
 }
 
-function buildFrames(pts) {
+function buildFrames(pts, sinceMS, untilMS) {
+  const BUCKET_MS = 5 * 60 * 1000;
   const byTime = new Map();
   for (const p of pts) {
     let frame = byTime.get(p.t);
     if (!frame) { frame = { timeMS: p.t, bySerial: {} }; byTime.set(p.t, frame); }
     frame.bySerial[p.serial] = p.p;
+  }
+  // Fill all 5-min buckets in the requested range so timestamp always matches picker
+  const start = Math.ceil(sinceMS / BUCKET_MS) * BUCKET_MS;
+  for (let t = start; t <= untilMS; t += BUCKET_MS) {
+    if (!byTime.has(t)) byTime.set(t, { timeMS: t, bySerial: {} });
   }
   return Array.from(byTime.values()).sort((a, b) => a.timeMS - b.timeMS);
 }
@@ -249,7 +255,7 @@ async function loadAnimSeries() {
     const resp = await fetch(`${state.apiBase}/api/inverter-series?since=${s}&until=${u}`);
     if (!resp.ok) return;
     const pts = await resp.json();
-    anim.frames = buildFrames(pts ?? []);
+    anim.frames = buildFrames(pts ?? [], s * 1000, u * 1000);
     anim.frameIdx = 0;
     const scrubber = document.getElementById('anim-scrubber');
     if (scrubber) scrubber.max = Math.max(0, anim.frames.length - 1);
