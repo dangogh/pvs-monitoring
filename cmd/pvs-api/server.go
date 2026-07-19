@@ -21,6 +21,7 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
+	mux.HandleFunc("GET /api/inverter-series", s.handleInverterSeries)
 	mux.HandleFunc("GET /api/maintenance-events", s.handleMaintenanceEvents)
 	mux.HandleFunc("POST /api/maintenance-events", s.handleCreateMaintenanceEvent)
 	return corsMiddleware(mux)
@@ -268,6 +269,30 @@ func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.
 		EventType: event.EventType,
 		Notes:     event.Notes,
 	})
+}
+
+type inverterSeriesPoint struct {
+	TimeMS  int64   `json:"t"`
+	Serial  string  `json:"serial"`
+	PowerKW float64 `json:"p"`
+}
+
+func (s *apiServer) handleInverterSeries(w http.ResponseWriter, r *http.Request) {
+	since, until, err := parseTimeRange(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	pts, err := s.store.InverterSeries(r.Context(), since, until)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]inverterSeriesPoint, len(pts))
+	for i, p := range pts {
+		out[i] = inverterSeriesPoint{TimeMS: p.Time.UnixMilli(), Serial: p.Serial, PowerKW: p.PowerKW}
+	}
+	writeJSON(w, out)
 }
 
 func (s *apiServer) handleDevices(w http.ResponseWriter, r *http.Request) {

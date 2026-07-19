@@ -64,6 +64,7 @@ var (
 	sqlInsertInverter     = mustSQL("sql/queries/insert_inverter_reading.sql")
 	sqlInsertAuxDevice    = mustSQL("sql/queries/insert_aux_device.sql")
 	sqlLatestInverters    = mustSQL("sql/queries/latest_inverters.sql")
+	sqlInverterSeries     = mustSQL("sql/queries/inverter_series.sql")
 	sqlLatestAuxDevices   = mustSQL("sql/queries/latest_aux_devices.sql")
 	sqlOpenOutage              = mustSQL("sql/queries/open_outage.sql")
 	sqlCloseOutage             = mustSQL("sql/queries/close_outage.sql")
@@ -497,6 +498,25 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 		}
 		d.ReceivedAt = time.Unix(receivedAt, 0)
 		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) InverterSeries(ctx context.Context, since, until time.Time) ([]pvs.InverterSeriesPoint, error) {
+	rows, err := s.db.QueryContext(ctx, sqlInverterSeries, since.Unix(), until.Unix())
+	if err != nil {
+		return nil, fmt.Errorf("query inverter series: %w", err)
+	}
+	defer rows.Close()
+	var out []pvs.InverterSeriesPoint
+	for rows.Next() {
+		var bucket int64
+		var p pvs.InverterSeriesPoint
+		if err := rows.Scan(&bucket, &p.Serial, &p.PowerKW); err != nil {
+			return nil, fmt.Errorf("scan inverter series: %w", err)
+		}
+		p.Time = time.Unix(bucket, 0)
+		out = append(out, p)
 	}
 	return out, rows.Err()
 }

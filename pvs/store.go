@@ -27,6 +27,13 @@ type SeriesPoint struct {
 	LoadKW  float64
 }
 
+// InverterSeriesPoint holds a 5-minute bucketed average power reading for one inverter.
+type InverterSeriesPoint struct {
+	Time    time.Time
+	Serial  string
+	PowerKW float64
+}
+
 // MaintenanceEvent records a maintenance activity or system event.
 type MaintenanceEvent struct {
 	ID        int64
@@ -45,6 +52,7 @@ type Store interface {
 	AveragePower(ctx context.Context, since, until time.Time) (PowerAvg, error)
 	EnergyDelta(ctx context.Context, since, until time.Time) (EnergyDelta, error)
 	ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]SeriesPoint, error)
+	InverterSeries(ctx context.Context, since, until time.Time) ([]InverterSeriesPoint, error)
 	CountReadings(ctx context.Context) (int64, error)
 	SaveDevices(ctx context.Context, devices []Device, receivedAt time.Time) error
 	LatestInverters(ctx context.Context) ([]InverterDevice, error)
