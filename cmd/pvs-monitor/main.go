@@ -117,6 +117,9 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		}()
 	}
 
+	if cfg.IsUnconfigured() {
+		logger.Warn("pvs-monitor is not configured — edit the config file and restart", "config", cfgPath, "addr", cfg.Addr)
+	}
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
 	<-ctx.Done()
 	return nil
