@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,11 +26,22 @@ func defaultDBPath() string {
 	return base + "/pvs-monitor/readings.db"
 }
 
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e *exitError) Error() string { return e.msg }
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := run(os.Args[1:], os.Stderr, ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "pvs-monitor: %v\n", err)
+		var exitErr *exitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.code)
+		}
 		os.Exit(1)
 	}
 }
@@ -119,7 +131,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 
 	if cfg.IsUnconfigured() {
 		logger.Error("pvs-monitor is not configured — edit the config file and restart", "config", cfgPath)
-		return fmt.Errorf("unconfigured: edit %s and restart", cfgPath)
+		return &exitError{code: 2, msg: fmt.Sprintf("unconfigured: edit %s and restart", cfgPath)}
 	}
 	logger.Info("pvs-monitor starting", "addr", cfg.Addr)
 	<-ctx.Done()
