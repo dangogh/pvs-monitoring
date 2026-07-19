@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,13 +28,10 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 
 const defaultAddr = "ws://192.168.191.155:9002"
 
-// placeholderAddr is the example IP shipped in config.yaml.dpkg-new.
-const placeholderAddr = "ws://192.168.1.100:9002"
-
-// IsUnconfigured reports whether the config still contains placeholder values
-// from the example file installed by the .deb package.
+// IsUnconfigured reports whether the config still contains the placeholder
+// address shipped in the example config file.
 func (c *Config) IsUnconfigured() bool {
-	return c.Addr == placeholderAddr || c.Addr == defaultAddr
+	return strings.Contains(c.Addr, "YOUR-PVS6-IP")
 }
 
 // deviceListURLFromAddr derives the device list HTTP URL from the WebSocket address.

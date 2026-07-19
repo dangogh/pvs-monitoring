@@ -2,7 +2,7 @@
 # Copy to ~/.config/pvs-monitor/config.yaml and adjust for your system.
 
 # PVS6 WebSocket address (ws://your-pvs6-ip:9002)
-addr: ws://192.168.1.100:9002
+addr: ws://YOUR-PVS6-IP:9002
 
 # Reconnect backoff settings
 reconnect_initial_interval: 1s
@@ -13,9 +13,8 @@ stale_threshold: 5s
 
 # Device list HTTP poller (optional — provides per-device data)
 # Leave password empty to disable.
-# The url should use the same IP as your WebSocket addr (http://your-pvs6-ip).
 device_list:
-  url: http://192.168.1.100     # must match the IP from addr above
+  url: http://YOUR-PVS6-IP     # must match the IP from addr above
   interval: 60s
   username: ssm_owner
   password: ""                   # last 5 characters of your PVS serial number
