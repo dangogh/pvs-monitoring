@@ -43,6 +43,13 @@ export async function initMap() {
     const mapDoc = new DOMParser().parseFromString(mapHtml, 'text/html');
     let css = '';
     mapDoc.querySelectorAll('style').forEach(s => css += s.textContent);
+    // Strip background/color from the body rule so the app's own dark-theme
+    // styling for #map-container (index.html) isn't clobbered by the
+    // site-specific map.html's hardcoded white background.
+    css = css.replace(/body\s*\{([^}]*)\}/, (_, decls) => {
+      const cleaned = decls.replace(/\s*background\s*:[^;]+;?/gi, '').replace(/\s*color\s*:[^;]+;?/gi, '');
+      return `#map-container {${cleaned}}`;
+    });
     css = css.replace(/\bbody\b/g, '#map-container');
     const container = document.getElementById('map-container');
     container.innerHTML = '';
