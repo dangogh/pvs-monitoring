@@ -2,10 +2,17 @@
 set -e
 
 if [ "$1" = "configure" ]; then
+    # Create system user if it doesn't exist
+    if ! id pvs-monitoring >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin pvs-monitoring
+    fi
+
     # Create data and config directories if they don't exist
     mkdir -p /var/lib/pvs-monitor
     mkdir -p /etc/pvs-monitor
-    
+    chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor /etc/pvs-monitor
+    chmod 750 /var/lib/pvs-monitor /etc/pvs-monitor
+
     # If config.yaml doesn't exist, put the default in place
     if [ ! -f /etc/pvs-monitor/config.yaml ]; then
         mv /etc/pvs-monitor/config.yaml.dpkg-new /etc/pvs-monitor/config.yaml
@@ -13,14 +20,17 @@ if [ "$1" = "configure" ]; then
     else
         rm -f /etc/pvs-monitor/config.yaml.dpkg-new
     fi
-    
+    chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml 2>/dev/null || true
+    chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml.example 2>/dev/null || true
+
     # Generate self-signed TLS certificate if it doesn't exist
     if [ ! -f /var/lib/pvs-monitor/server.crt ] || [ ! -f /var/lib/pvs-monitor/server.key ]; then
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
             -days 3650 -nodes \
             -keyout /var/lib/pvs-monitor/server.key -out /var/lib/pvs-monitor/server.crt \
             -subj "/CN=$(hostname)" 2>/dev/null || true
-        chmod 600 /var/lib/pvs-monitor/server.key
+        chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor/server.key /var/lib/pvs-monitor/server.crt
+        chmod 640 /var/lib/pvs-monitor/server.key
     fi
     
     # Enable services (but don't start them yet — user must configure first)

@@ -3,7 +3,10 @@ Description=PVS6 solar dashboard UI
 After=pvs-api.service
 
 [Service]
-ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets
+User=pvs-monitoring
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets -addr :443 -tls-cert /var/lib/pvs-monitor/server.crt -tls-key /var/lib/pvs-monitor/server.key
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

@@ -13,6 +13,7 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # Clean up empty directories if purging
     if [ "$1" = "purge" ]; then
         rm -rf /var/lib/pvs-monitor /etc/pvs-monitor
+        userdel pvs-monitoring 2>/dev/null || true
     fi
 fi
 
