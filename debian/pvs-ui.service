@@ -4,9 +4,7 @@ After=pvs-api.service
 
 [Service]
 User=pvs-monitoring
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets -addr :443 -tls-cert /var/lib/pvs-monitor/server.crt -tls-key /var/lib/pvs-monitor/server.key
+ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
