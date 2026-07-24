@@ -250,6 +250,8 @@ async function loadAnimSeries() {
   const s = Math.floor(new Date(since).getTime() / 1000);
   const u = Math.floor(new Date(until).getTime() / 1000);
   if (s >= u) return;
+  state.lastSince = s;
+  state.lastUntil = u;
 
   try {
     const resp = await fetch(`${state.apiBase}/api/inverter-series?since=${s}&until=${u}`);
@@ -277,12 +279,20 @@ function shiftWindow(factor) {
   untilEl.value = localISONoSec(new Date(mid + newSpan / 2));
 }
 
-export function initMapAnimation() {
+export function syncMapRange() {
   const sinceEl = document.getElementById('anim-since');
   const untilEl = document.getElementById('anim-until');
-  const now = new Date();
-  sinceEl.value = localISONoSec(todayMidnight());
-  untilEl.value = localISONoSec(now);
+  if (state.lastSince) {
+    sinceEl.value = localISONoSec(new Date(state.lastSince * 1000));
+    untilEl.value = localISONoSec(new Date(state.lastUntil * 1000));
+  } else {
+    sinceEl.value = localISONoSec(todayMidnight());
+    untilEl.value = localISONoSec(new Date());
+  }
+}
+
+export function initMapAnimation() {
+  syncMapRange();
 
   document.getElementById('anim-btn-play').addEventListener('click', animToggle);
   document.getElementById('anim-btn-step-back').addEventListener('click', () => { animPause(); animStep(-1); });

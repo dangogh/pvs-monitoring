@@ -2,21 +2,25 @@
 
 import { state, DEVICES_REFRESH_MS } from './state.js';
 import { initClock } from './display.js';
-import { loadRange, refreshCurrent, initOverview } from './overview.js';
+import { loadRange, refreshCurrent, initOverview, fetchAndRender } from './overview.js';
 import { loadPanels, fetchDevices, initPanels } from './panels.js';
-import { initMap, loadMap, initMapAnimation } from './map.js';
+import { initMap, loadMap, initMapAnimation, syncMapRange } from './map.js';
 import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
 
 // ── Tabs ──────────────────────────────────────────────────────
 function switchTab(id) {
+  const prev = state.activeTab;
   state.activeTab = id;
   document.querySelectorAll('.tab-btn').forEach(b => {
     b.setAttribute('aria-selected', b.getAttribute('aria-controls') === id);
   });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === id));
   if (id === 'tab-panels') loadPanels();
-  if (id === 'tab-map')    loadMap();
+  if (id === 'tab-map')    { syncMapRange(); loadMap(); }
   if (id === 'tab-events') loadEvents();
+  if (id === 'tab-overview' && prev === 'tab-map' && state.lastSince) {
+    fetchAndRender(state.lastSince, state.lastUntil, null, 'custom');
+  }
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn =>
