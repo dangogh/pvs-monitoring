@@ -14,8 +14,8 @@ jobs:
     name: Build macOS (arm64)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Build
@@ -27,7 +27,7 @@ jobs:
           GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-ui      ./cmd/pvs-ui
       - name: Archive
         run: tar -czf pvs-monitoring-darwin-arm64.tar.gz -C bin pvs-monitor pvs-mcp pvs-api pvs-ui
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: darwin-arm64
           path: pvs-monitoring-darwin-arm64.tar.gz
@@ -36,21 +36,21 @@ jobs:
     name: Build Debian package (linux/arm64)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-tags: true
           fetch-depth: 0
       - name: Seed test tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: git tag v0.0.0-test
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
       - name: Install packaging deps
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends devscripts debhelper fakeroot
       - name: Build .deb
         run: make deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: deb-arm64
           path: dist/*.deb
@@ -61,11 +61,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-macos, build-deb]
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.2
         with:
           files: |
             pvs-monitoring-darwin-arm64.tar.gz
