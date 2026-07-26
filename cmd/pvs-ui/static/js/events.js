@@ -4,9 +4,17 @@ import { state } from './state.js';
 
 const EVENT_TYPES = [
   { value: 'panel_cleaning', label: 'Panel Cleaning' },
+  { value: 'soiling',        label: 'Soiling'        },
+  { value: 'weather',        label: 'Weather'        },
   { value: 'hvac_outage',    label: 'HVAC Outage'    },
-  { value: 'other',          label: 'Other'           },
+  { value: 'inverter_outage', label: 'Inverter Outage' },
+  { value: 'grid_outage',    label: 'Grid Outage'    },
+  { value: 'maintenance',    label: 'Maintenance'    },
+  { value: 'other',          label: 'Other'          },
 ];
+
+// ID of the event currently being edited, or null when creating a new one.
+let editingId = null;
 
 function fmtEventType(type) {
   const found = EVENT_TYPES.find(t => t.value === type);
@@ -44,6 +52,15 @@ function renderEventsTable() {
       '<td>' + escHtml(e.notes || '—') + '</td>';
 
     const actions = document.createElement('td');
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'event-edit';
+    editBtn.textContent = 'Edit';
+    editBtn.setAttribute('aria-label', 'Edit event: ' + fmtEventType(e.event_type) + ' on ' + dateStr);
+    editBtn.addEventListener('click', () => startEdit(e));
+    actions.appendChild(editBtn);
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'event-delete';
@@ -51,10 +68,34 @@ function renderEventsTable() {
     delBtn.setAttribute('aria-label', 'Delete event: ' + fmtEventType(e.event_type) + ' on ' + dateStr);
     delBtn.addEventListener('click', () => deleteEvent(e.id, delBtn));
     actions.appendChild(delBtn);
-    tr.appendChild(actions);
 
+    tr.appendChild(actions);
     tbody.appendChild(tr);
   }
+}
+
+// Enter edit mode: prefill the form from an existing event.
+function startEdit(e) {
+  editingId = e.id;
+  document.getElementById('event-start-at').value = toDateTimeInputValue(new Date(e.start_at));
+  document.getElementById('event-end-at').value   = e.end_at ? toDateTimeInputValue(new Date(e.end_at)) : '';
+  document.getElementById('event-type-select').value = e.event_type;
+  document.getElementById('event-notes').value    = e.notes || '';
+
+  document.getElementById('event-form-heading').textContent = 'Edit Event';
+  document.getElementById('event-submit').textContent = 'Save Changes';
+  document.getElementById('event-cancel').hidden = false;
+  document.getElementById('event-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  document.getElementById('event-start-at').focus();
+}
+
+// Leave edit mode and return the form to "create new" state.
+function exitEdit() {
+  editingId = null;
+  document.getElementById('event-form').reset();
+  document.getElementById('event-form-heading').textContent = 'Record New Event';
+  document.getElementById('event-submit').textContent = 'Save Event';
+  document.getElementById('event-cancel').hidden = true;
 }
 
 async function deleteEvent(id, btn) {
@@ -131,6 +172,11 @@ export function initEvents() {
     typeSelect.appendChild(opt);
   });
 
+  document.getElementById('event-cancel')?.addEventListener('click', () => {
+    exitEdit();
+    statusEl.textContent = '';
+  });
+
   form.addEventListener('submit', async e => {
     e.preventDefault();
     statusEl.textContent = '';
@@ -145,17 +191,22 @@ export function initEvents() {
     if (endAt)  body.end_at = new Date(endAt).toISOString();
     if (notes)  body.notes  = notes;
 
+    const editing = editingId !== null;
+    const url = editing
+      ? state.apiBase + '/api/maintenance-events/' + editingId
+      : state.apiBase + '/api/maintenance-events';
+
     try {
-      const resp = await fetch(state.apiBase + '/api/maintenance-events', {
-        method:  'POST',
+      const resp = await fetch(url, {
+        method:  editing ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(body),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       await fetchMaintenanceEvents();
       renderEventsTable();
-      form.reset();
-      statusEl.textContent = 'Event recorded.';
+      exitEdit();
+      statusEl.textContent = editing ? 'Event updated.' : 'Event recorded.';
       statusEl.className = 'event-form-status ok';
     } catch (err) {
       statusEl.textContent = 'Error: ' + err.message;
