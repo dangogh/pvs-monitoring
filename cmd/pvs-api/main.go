@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
 	"github.com/dangogh/pvs-monitoring/store/sqlite"
 )
@@ -77,7 +78,7 @@ func serve(ctx context.Context, store pvs.Store, ln net.Listener, tlsCert, tlsKe
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-api listening", "addr", ln.Addr(), "tls", tlsCert != "")
+	logger.Info("pvs-api listening", "addr", ln.Addr(), "tls", tlsCert != "", "version", version.Version)
 	var err error
 	if tlsCert != "" {
 		err = httpSrv.ServeTLS(ln, tlsCert, tlsKey)

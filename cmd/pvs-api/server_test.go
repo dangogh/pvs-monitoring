@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
@@ -606,6 +607,25 @@ func TestHandleDeleteMaintenanceEvent_InvalidID(t *testing.T) {
 	newServer(&fakeStore{}).routes().ServeHTTP(w, r)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+// --- handleVersion ---
+
+func TestHandleVersion(t *testing.T) {
+	version.Version = "v9.9.9-test"
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	newServer(&fakeStore{}).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["version"] != "v9.9.9-test" {
+		t.Errorf("want version v9.9.9-test, got %q", got["version"])
 	}
 }
 

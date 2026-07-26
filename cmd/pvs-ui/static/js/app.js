@@ -27,6 +27,18 @@ document.querySelectorAll('.tab-btn').forEach(btn =>
   btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls')))
 );
 
+// Fetch the app version from pvs-api and show it in the footer.
+async function loadVersion() {
+  const el = document.getElementById('app-version');
+  if (!el) return;
+  try {
+    const resp = await fetch(state.apiBase + '/api/version');
+    if (!resp.ok) return;
+    const { version } = await resp.json();
+    if (version) el.textContent = 'pvs-monitoring ' + version;
+  } catch (_) {}
+}
+
 // ── Init ──────────────────────────────────────────────────────
 (async () => {
   try {
@@ -34,6 +46,7 @@ document.querySelectorAll('.tab-btn').forEach(btn =>
     state.apiBase = (cfg.api_base || '').replace(/\/$/, '');
   } catch (_) {}
 
+  loadVersion();
   initClock();
   initOverview();
   initPanels();

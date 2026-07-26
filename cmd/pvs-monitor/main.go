@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dangogh/pvs-monitoring/config"
+	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
 	"github.com/dangogh/pvs-monitoring/store/sqlite"
 )
@@ -88,6 +89,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		store = s
 		logger.Info("sqlite store opened", "path", dbPath)
 	}
+	logger.Info("pvs-monitor starting", "version", version.Version)
 
 	monitor := pvs.NewMonitor(cfg.Addr, cfg, store, logger)
 	go func() {
