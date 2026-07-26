@@ -20,10 +20,11 @@ jobs:
           go-version-file: go.mod
       - name: Build
         run: |
-          GOARCH=arm64 GOOS=darwin go build -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
-          GOARCH=arm64 GOOS=darwin go build -ldflags="-s -w" -o bin/pvs-mcp     ./cmd/pvs-mcp
-          GOARCH=arm64 GOOS=darwin go build -ldflags="-s -w" -o bin/pvs-api     ./cmd/pvs-api
-          GOARCH=arm64 GOOS=darwin go build -ldflags="-s -w" -o bin/pvs-ui      ./cmd/pvs-ui
+          LDFLAGS="-s -w -X github.com/dangogh/pvs-monitoring/internal/version.Version=${GITHUB_REF_NAME}"
+          GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-monitor ./cmd/pvs-monitor
+          GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-mcp     ./cmd/pvs-mcp
+          GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-api     ./cmd/pvs-api
+          GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-ui      ./cmd/pvs-ui
       - name: Archive
         run: tar -czf pvs-monitoring-darwin-arm64.tar.gz -C bin pvs-monitor pvs-mcp pvs-api pvs-ui
       - uses: actions/upload-artifact@v4

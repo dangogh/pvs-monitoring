@@ -12,10 +12,15 @@ export PATH := $(HOME)/go/bin:$(PATH)
 # targets, so it can be passed straight through. Only dh_auto_build cross-
 # compiles for the host arch; dh_auto_test below builds/runs natively so
 # tests don't require emulation.
+# Version stamped into the binaries, taken from the changelog entry dch just wrote
+# (so it matches the .deb package version). Prefixed with 'v' to match release tags.
+VERSION := v$(shell dpkg-parsechangelog -SVersion)
+GO_LDFLAGS := -s -w -X github.com/dangogh/pvs-monitoring/internal/version.Version=$(VERSION)
+
 override_dh_auto_build:
-	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-monitor ./cmd/pvs-monitor
-	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-api ./cmd/pvs-api
-	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="-s -w" -o bin/pvs-ui ./cmd/pvs-ui
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-monitor ./cmd/pvs-monitor
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-api ./cmd/pvs-api
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-ui ./cmd/pvs-ui
 
 override_dh_auto_install:
 	# Install binaries

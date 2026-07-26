@@ -15,6 +15,8 @@ import (
 
 	"embed"
 	iofs "io/fs"
+
+	"github.com/dangogh/pvs-monitoring/internal/version"
 )
 
 //go:embed static
@@ -87,7 +89,7 @@ func run(args []string, ctx context.Context) error {
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-ui listening", "addr", listenAddr, "api", apiBase)
+	logger.Info("pvs-ui listening", "addr", listenAddr, "api", apiBase, "version", version.Version)
 	if tlsCert != "" {
 		if err := httpSrv.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
 			return err

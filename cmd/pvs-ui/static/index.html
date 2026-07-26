@@ -652,6 +652,15 @@
     }
     .event-cancel:hover { border-color: var(--solar); color: var(--solar); }
 
+    #app-footer {
+      margin-top: 2rem;
+      padding: 0.75rem 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      opacity: 0.7;
+    }
+
     .event-form {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -943,6 +952,10 @@
   <p id="status" aria-live="polite"></p>
 
 </main>
+
+<footer id="app-footer">
+  <span id="app-version" aria-label="Application version"></span>
+</footer>
 
 <script type="module" src="/js/app.js"></script>
 

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
 
@@ -19,6 +20,7 @@ type apiServer struct {
 
 func (s *apiServer) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/version", s.handleVersion)
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
@@ -41,6 +43,10 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *apiServer) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]string{"version": version.Version})
 }
 
 type currentReading struct {
