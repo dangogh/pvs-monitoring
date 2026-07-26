@@ -10,6 +10,8 @@ const EVENT_TYPES = [
   { value: 'inverter_outage', label: 'Inverter Outage' },
   { value: 'grid_outage',    label: 'Grid Outage'    },
   { value: 'maintenance',    label: 'Maintenance'    },
+  // Load-side: an expected rise in consumption, not an array fault.
+  { value: 'ev_charging',    label: 'EV Charging'    },
   { value: 'other',          label: 'Other'          },
 ];
 
@@ -43,35 +45,80 @@ function renderEventsTable() {
   }
   if (empty) empty.hidden = true;
 
-  for (const e of events) {
-    const tr = document.createElement('tr');
+  events.forEach((e, i) => {
     const dateStr = fmtEventRange(e.start_at, e.end_at);
-    tr.innerHTML =
-      '<td>' + escHtml(dateStr) + '</td>' +
-      '<td>' + escHtml(fmtEventType(e.event_type)) + '</td>' +
-      '<td>' + escHtml(e.notes || '—') + '</td>';
+    const typeStr = fmtEventType(e.event_type);
+    const detailId = 'event-detail-' + (e.id ?? i);
 
-    const actions = document.createElement('td');
+    // ── Collapsed summary row: toggle + date range + type ──
+    const summary = document.createElement('tr');
+    summary.className = 'event-summary';
+
+    const toggleTd = document.createElement('td');
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'event-toggle';
+    toggle.textContent = '▶';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', detailId);
+    toggle.setAttribute('aria-label', 'Show details for ' + typeStr + ' on ' + dateStr);
+    toggleTd.appendChild(toggle);
+
+    const dateTd = document.createElement('td');
+    dateTd.textContent = dateStr;
+    const typeTd = document.createElement('td');
+    typeTd.textContent = typeStr;
+
+    summary.append(toggleTd, dateTd, typeTd);
+
+    // ── Expandable detail row: notes + edit/delete actions ──
+    const detail = document.createElement('tr');
+    detail.className = 'event-detail';
+    detail.id = detailId;
+    detail.hidden = true;
+
+    const detailTd = document.createElement('td');
+    detailTd.colSpan = 3;
+
+    const notes = document.createElement('p');
+    notes.className = 'event-notes-text' + (e.notes ? '' : ' empty');
+    notes.textContent = e.notes || 'No notes.';
+    detailTd.appendChild(notes);
 
     const editBtn = document.createElement('button');
     editBtn.type = 'button';
     editBtn.className = 'event-edit';
     editBtn.textContent = 'Edit';
-    editBtn.setAttribute('aria-label', 'Edit event: ' + fmtEventType(e.event_type) + ' on ' + dateStr);
+    editBtn.setAttribute('aria-label', 'Edit event: ' + typeStr + ' on ' + dateStr);
     editBtn.addEventListener('click', () => startEdit(e));
-    actions.appendChild(editBtn);
+    detailTd.appendChild(editBtn);
 
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'event-delete';
     delBtn.textContent = 'Delete';
-    delBtn.setAttribute('aria-label', 'Delete event: ' + fmtEventType(e.event_type) + ' on ' + dateStr);
+    delBtn.setAttribute('aria-label', 'Delete event: ' + typeStr + ' on ' + dateStr);
     delBtn.addEventListener('click', () => deleteEvent(e.id, delBtn));
-    actions.appendChild(delBtn);
+    detailTd.appendChild(delBtn);
 
-    tr.appendChild(actions);
-    tbody.appendChild(tr);
-  }
+    detail.appendChild(detailTd);
+
+    const setExpanded = expanded => {
+      toggle.setAttribute('aria-expanded', String(expanded));
+      detail.hidden = !expanded;
+    };
+    toggle.addEventListener('click', ev => {
+      ev.stopPropagation();
+      setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+    });
+    // Clicking anywhere on the summary row toggles too, except on the
+    // action buttons that live in the detail row.
+    summary.addEventListener('click', () => {
+      setExpanded(toggle.getAttribute('aria-expanded') !== 'true');
+    });
+
+    tbody.append(summary, detail);
+  });
 }
 
 // Enter edit mode: prefill the form from an existing event.
