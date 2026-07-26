@@ -2,8 +2,13 @@ package pvs
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrNotFound is returned by Store methods that target a record by ID when no
+// matching record exists.
+var ErrNotFound = errors.New("record not found")
 
 // PowerAvg holds average power values over a time window.
 type PowerAvg struct {
@@ -62,6 +67,12 @@ type Store interface {
 	ListOpenInverterOutages(ctx context.Context) ([]string, error)
 	SaveMaintenanceEvent(ctx context.Context, e MaintenanceEvent) (int64, error)
 	ListMaintenanceEvents(ctx context.Context) ([]MaintenanceEvent, error)
+	// UpdateMaintenanceEvent replaces the mutable fields of the event with the
+	// given ID. It returns ErrNotFound if no event has that ID.
+	UpdateMaintenanceEvent(ctx context.Context, e MaintenanceEvent) error
+	// DeleteMaintenanceEvent removes the event with the given ID. It returns
+	// ErrNotFound if no event has that ID.
+	DeleteMaintenanceEvent(ctx context.Context, id int64) error
 	Checkpoint(ctx context.Context) error
 	Close() error
 }

@@ -31,6 +31,10 @@ type fakeStore struct {
 	savedEvent        *pvs.MaintenanceEvent
 	savedEventID      int64
 	savedEventErr     error
+	updatedEvent      *pvs.MaintenanceEvent
+	updateErr         error
+	deletedEventID    int64
+	deleteErr         error
 }
 
 func (f *fakeStore) SaveReading(_ context.Context, _ *pvs.Reading) error { return nil }
@@ -52,17 +56,27 @@ func (f *fakeStore) SaveDevices(_ context.Context, _ []pvs.Device, _ time.Time) 
 func (f *fakeStore) LatestInverters(_ context.Context) ([]pvs.InverterDevice, error) {
 	return f.inverters, f.invertersErr
 }
-func (f *fakeStore) InverterSeries(_ context.Context, _, _ time.Time) ([]pvs.InverterSeriesPoint, error) { return nil, nil }
+func (f *fakeStore) InverterSeries(_ context.Context, _, _ time.Time) ([]pvs.InverterSeriesPoint, error) {
+	return nil, nil
+}
 func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]pvs.AuxDevice, error)        { return nil, nil }
 func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
 func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
-func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error) { return nil, nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
 func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, e pvs.MaintenanceEvent) (int64, error) {
 	f.savedEvent = &e
 	return f.savedEventID, f.savedEventErr
 }
 func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]pvs.MaintenanceEvent, error) {
 	return f.maintenanceEvents, f.maintenanceErr
+}
+func (f *fakeStore) UpdateMaintenanceEvent(_ context.Context, e pvs.MaintenanceEvent) error {
+	f.updatedEvent = &e
+	return f.updateErr
+}
+func (f *fakeStore) DeleteMaintenanceEvent(_ context.Context, id int64) error {
+	f.deletedEventID = id
+	return f.deleteErr
 }
 func (f *fakeStore) Checkpoint(_ context.Context) error { return nil }
 func (f *fakeStore) Close() error                       { return nil }
@@ -499,6 +513,99 @@ func TestHandleCreateMaintenanceEvent_StoreError(t *testing.T) {
 	newServer(store).handleCreateMaintenanceEvent(w, r)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", w.Code)
+	}
+}
+
+// --- handleUpdateMaintenanceEvent (PATCH) ---
+
+func TestHandleUpdateMaintenanceEvent_OK(t *testing.T) {
+	store := &fakeStore{}
+	body := `{"start_at":"2026-07-17T16:30:00Z","event_type":"weather","notes":"corrected"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/maintenance-events/6", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	newServer(store).routes().ServeHTTP(w, r)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if store.updatedEvent == nil {
+		t.Fatalf("event not passed to store")
+	}
+	if store.updatedEvent.ID != 6 || store.updatedEvent.EventType != "weather" {
+		t.Errorf("unexpected updated event: %+v", store.updatedEvent)
+	}
+	var got maintenanceEventResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ID != 6 || got.EventType != "weather" || got.Notes != "corrected" {
+		t.Errorf("unexpected response: %+v", got)
+	}
+}
+
+func TestHandleUpdateMaintenanceEvent_NotFound(t *testing.T) {
+	store := &fakeStore{updateErr: pvs.ErrNotFound}
+	body := `{"start_at":"2026-07-17T16:30:00Z","event_type":"weather"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/maintenance-events/999", strings.NewReader(body))
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateMaintenanceEvent_InvalidID(t *testing.T) {
+	body := `{"start_at":"2026-07-17T16:30:00Z","event_type":"weather"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/maintenance-events/abc", strings.NewReader(body))
+	newServer(&fakeStore{}).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestHandleUpdateMaintenanceEvent_MissingEventType(t *testing.T) {
+	body := `{"start_at":"2026-07-17T16:30:00Z"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/maintenance-events/6", strings.NewReader(body))
+	newServer(&fakeStore{}).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+// --- handleDeleteMaintenanceEvent (DELETE) ---
+
+func TestHandleDeleteMaintenanceEvent_OK(t *testing.T) {
+	store := &fakeStore{}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/api/maintenance-events/3", nil)
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d", w.Code)
+	}
+	if store.deletedEventID != 3 {
+		t.Errorf("want deleted id 3, got %d", store.deletedEventID)
+	}
+}
+
+func TestHandleDeleteMaintenanceEvent_NotFound(t *testing.T) {
+	store := &fakeStore{deleteErr: pvs.ErrNotFound}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/api/maintenance-events/999", nil)
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", w.Code)
+	}
+}
+
+func TestHandleDeleteMaintenanceEvent_InvalidID(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodDelete, "/api/maintenance-events/abc", nil)
+	newServer(&fakeStore{}).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
 	}
 }
 

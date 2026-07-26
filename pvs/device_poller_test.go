@@ -419,8 +419,10 @@ func (f *fakeDeviceStore) LatestInverters(_ context.Context) ([]InverterDevice, 
 	defer f.mu.Unlock()
 	return f.inverters, nil
 }
-func (f *fakeDeviceStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) { return nil, nil }
-func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)                        { return nil, nil }
+func (f *fakeDeviceStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) {
+	return nil, nil
+}
+func (f *fakeDeviceStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error) { return nil, nil }
 func (f *fakeDeviceStore) OpenInverterOutage(_ context.Context, serial string, at time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -454,6 +456,12 @@ func (f *fakeDeviceStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceE
 }
 func (f *fakeDeviceStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error) {
 	return nil, nil
+}
+func (f *fakeDeviceStore) UpdateMaintenanceEvent(_ context.Context, _ MaintenanceEvent) error {
+	return nil
+}
+func (f *fakeDeviceStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error {
+	return nil
 }
 func (f *fakeDeviceStore) Checkpoint(_ context.Context) error { return nil }
 func (f *fakeDeviceStore) Close() error                       { return nil }

@@ -42,7 +42,32 @@ function renderEventsTable() {
       '<td>' + escHtml(dateStr) + '</td>' +
       '<td>' + escHtml(fmtEventType(e.event_type)) + '</td>' +
       '<td>' + escHtml(e.notes || '—') + '</td>';
+
+    const actions = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'event-delete';
+    delBtn.textContent = 'Delete';
+    delBtn.setAttribute('aria-label', 'Delete event: ' + fmtEventType(e.event_type) + ' on ' + dateStr);
+    delBtn.addEventListener('click', () => deleteEvent(e.id, delBtn));
+    actions.appendChild(delBtn);
+    tr.appendChild(actions);
+
     tbody.appendChild(tr);
+  }
+}
+
+async function deleteEvent(id, btn) {
+  if (!confirm('Delete this event? This cannot be undone.')) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch(state.apiBase + '/api/maintenance-events/' + id, { method: 'DELETE' });
+    if (!resp.ok && resp.status !== 404) throw new Error('HTTP ' + resp.status);
+    await fetchMaintenanceEvents();
+    renderEventsTable();
+  } catch (err) {
+    btn.disabled = false;
+    alert('Could not delete event: ' + err.message);
   }
 }
 

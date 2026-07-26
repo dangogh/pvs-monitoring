@@ -620,3 +620,66 @@ func TestSaveAndListMaintenanceEvents(t *testing.T) {
 	assert.Equal(t, "hvac_outage", events[1].EventType)
 	assert.Equal(t, "heat pump failed", events[1].Notes)
 }
+
+func TestUpdateMaintenanceEvent(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	start := time.Date(2026, 7, 17, 14, 30, 0, 0, time.UTC)
+	id, err := s.SaveMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		StartAt:   start,
+		EndAt:     start.Add(time.Hour),
+		EventType: "panel_cleaning",
+		Notes:     "original",
+	})
+	require.NoError(t, err)
+
+	newStart := time.Date(2026, 7, 17, 16, 30, 0, 0, time.UTC)
+	err = s.UpdateMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		ID:        id,
+		StartAt:   newStart,
+		EventType: "weather",
+		Notes:     "corrected",
+	})
+	require.NoError(t, err)
+
+	events, err := s.ListMaintenanceEvents(ctx)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, newStart.Unix(), events[0].StartAt.Unix())
+	assert.Equal(t, "weather", events[0].EventType)
+	assert.Equal(t, "corrected", events[0].Notes)
+	assert.True(t, events[0].EndAt.IsZero(), "end_at should be cleared when omitted")
+}
+
+func TestUpdateMaintenanceEventNotFound(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	err := s.UpdateMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		ID:        999,
+		StartAt:   time.Now(),
+		EventType: "weather",
+	})
+	assert.ErrorIs(t, err, pvs.ErrNotFound)
+}
+
+func TestDeleteMaintenanceEvent(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	id, err := s.SaveMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		StartAt:   time.Now(),
+		EventType: "other",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeleteMaintenanceEvent(ctx, id))
+
+	events, err := s.ListMaintenanceEvents(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, events)
+
+	// Deleting again reports not found.
+	assert.ErrorIs(t, s.DeleteMaintenanceEvent(ctx, id), pvs.ErrNotFound)
+}
