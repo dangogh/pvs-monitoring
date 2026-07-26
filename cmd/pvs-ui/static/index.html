@@ -607,8 +607,42 @@
       letter-spacing: 0.04em;
     }
 
-    #events-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
-    #events-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
+    /* Zebra-stripe by event (each event = a summary row + a detail row). */
+    #events-table tbody tr.event-summary:nth-of-type(4n+3),
+    #events-table tbody tr.event-summary:nth-of-type(4n+3) + tr.event-detail {
+      background: rgba(255,255,255,0.02);
+    }
+    #events-table tbody tr.event-summary { cursor: pointer; }
+    #events-table tbody tr.event-summary:hover { background: rgba(255,255,255,0.05); }
+
+    .events-toggle-col { width: 2.25rem; }
+
+    .event-toggle {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.8rem;
+      line-height: 1;
+      padding: 0.15rem 0.3rem;
+      transition: transform 0.15s ease;
+    }
+    .event-toggle:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+    .event-toggle[aria-expanded="true"] { transform: rotate(90deg); }
+
+    .event-detail > td { padding-top: 0; }
+    .event-detail .event-notes-text { color: var(--text); margin: 0 0 0.6rem; white-space: pre-wrap; }
+    .event-detail .event-notes-text.empty { color: var(--muted); font-style: italic; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
 
     .events-empty {
       padding: 1.25rem;
@@ -882,10 +916,9 @@
       <table id="events-table" aria-label="Maintenance events">
         <thead>
           <tr>
+            <th scope="col" class="events-toggle-col"><span class="sr-only">Expand</span></th>
             <th scope="col">Date</th>
             <th scope="col">Type</th>
-            <th scope="col">Notes</th>
-            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody id="events-tbody"></tbody>
