@@ -292,19 +292,27 @@ func (f *fakeStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta,
 func (f *fakeStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
 	return nil, nil
 }
-func (f *fakeStore) CountReadings(_ context.Context) (int64, error)                     { return f.count, nil }
-func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error)             { return time.Time{}, nil }
-func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error       { return nil }
-func (f *fakeStore) LatestInverters(_ context.Context) ([]InverterDevice, error)        { return nil, nil }
-func (f *fakeStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) { return nil, nil }
+func (f *fakeStore) CountReadings(_ context.Context) (int64, error)               { return f.count, nil }
+func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error)       { return time.Time{}, nil }
+func (f *fakeStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
+func (f *fakeStore) LatestInverters(_ context.Context) ([]InverterDevice, error)  { return nil, nil }
+func (f *fakeStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) {
+	return nil, nil
+}
 func (f *fakeStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)            { return nil, nil }
 func (f *fakeStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
 func (f *fakeStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
-func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)                    { return nil, nil }
-func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error)     { return 0, nil }
-func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error)           { return nil, nil }
-func (f *fakeStore) Checkpoint(_ context.Context) error                                            { return nil }
-func (f *fakeStore) Close() error                                                                  { return nil }
+func (f *fakeStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
+func (f *fakeStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error) {
+	return 0, nil
+}
+func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error) {
+	return nil, nil
+}
+func (f *fakeStore) UpdateMaintenanceEvent(_ context.Context, _ MaintenanceEvent) error { return nil }
+func (f *fakeStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error            { return nil }
+func (f *fakeStore) Checkpoint(_ context.Context) error                                 { return nil }
+func (f *fakeStore) Close() error                                                       { return nil }
 
 func TestRunLoopCountsReadings(t *testing.T) {
 	ts := int64(1779680954)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -24,13 +25,15 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("GET /api/inverter-series", s.handleInverterSeries)
 	mux.HandleFunc("GET /api/maintenance-events", s.handleMaintenanceEvents)
 	mux.HandleFunc("POST /api/maintenance-events", s.handleCreateMaintenanceEvent)
+	mux.HandleFunc("PATCH /api/maintenance-events/{id}", s.handleUpdateMaintenanceEvent)
+	mux.HandleFunc("DELETE /api/maintenance-events/{id}", s.handleDeleteMaintenanceEvent)
 	return corsMiddleware(mux)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -269,6 +272,68 @@ func (s *apiServer) handleCreateMaintenanceEvent(w http.ResponseWriter, r *http.
 		EventType: event.EventType,
 		Notes:     event.Notes,
 	})
+}
+
+func (s *apiServer) handleUpdateMaintenanceEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	var req createMaintenanceEventRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.StartAt.IsZero() {
+		http.Error(w, "start_at is required", http.StatusBadRequest)
+		return
+	}
+	if req.EventType == "" {
+		http.Error(w, "event_type is required", http.StatusBadRequest)
+		return
+	}
+	event := pvs.MaintenanceEvent{
+		ID:        id,
+		StartAt:   req.StartAt,
+		EventType: req.EventType,
+		Notes:     req.Notes,
+	}
+	if req.EndAt != nil {
+		event.EndAt = *req.EndAt
+	}
+	switch err := s.store.UpdateMaintenanceEvent(r.Context(), event); {
+	case errors.Is(err, pvs.ErrNotFound):
+		http.Error(w, "maintenance event not found", http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, maintenanceEventResponse{
+		ID:        event.ID,
+		StartAt:   event.StartAt,
+		EndAt:     optionalTime(event.EndAt),
+		EventType: event.EventType,
+		Notes:     event.Notes,
+	})
+}
+
+func (s *apiServer) handleDeleteMaintenanceEvent(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	switch err := s.store.DeleteMaintenanceEvent(r.Context(), id); {
+	case errors.Is(err, pvs.ErrNotFound):
+		http.Error(w, "maintenance event not found", http.StatusNotFound)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type inverterSeriesPoint struct {

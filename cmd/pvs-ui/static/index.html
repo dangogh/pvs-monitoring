@@ -616,6 +616,19 @@
       font-size: 0.9rem;
     }
 
+    .event-delete {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .event-delete:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
+    .event-delete:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+    .event-delete:disabled { opacity: 0.5; cursor: default; }
+
     .event-form {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -840,6 +853,7 @@
             <th scope="col">Date</th>
             <th scope="col">Type</th>
             <th scope="col">Notes</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody id="events-tbody"></tbody>

@@ -45,32 +45,34 @@ var migrations = []string{
 }
 
 var (
-	sqlInsertReading      = mustSQL("sql/queries/insert_reading.sql")
-	sqlLatestReading      = mustSQL("sql/queries/latest_reading.sql")
-	sqlEarliestReading    = mustSQL("sql/queries/earliest_reading_at.sql")
-	sqlAveragePower       = mustSQL("sql/queries/average_power.sql")
-	sqlAveragePowerRollup = mustSQL("sql/queries/average_power_rollup.sql")
-	sqlEnergyDelta        = mustSQL("sql/queries/energy_delta.sql")
-	sqlEnergyDeltaRollup  = mustSQL("sql/queries/energy_delta_rollup.sql")
-	sqlSeriesRaw          = mustSQL("sql/queries/series_raw.sql")
-	sqlSeriesHourly       = mustSQL("sql/queries/series_hourly.sql")
-	sqlSeriesHourly6h     = mustSQL("sql/queries/series_hourly_6h.sql")
-	sqlSeriesDaily        = mustSQL("sql/queries/series_daily.sql")
-	sqlUpsertHourly       = mustSQL("sql/queries/upsert_hourly.sql")
-	sqlUpsertDaily        = mustSQL("sql/queries/upsert_daily.sql")
-	sqlBackfillHourly     = mustSQL("sql/queries/backfill_hourly.sql")
-	sqlBackfillDaily      = mustSQL("sql/queries/backfill_daily.sql")
-	sqlCountReadings      = mustSQL("sql/queries/count_readings.sql")
-	sqlInsertInverter     = mustSQL("sql/queries/insert_inverter_reading.sql")
-	sqlInsertAuxDevice    = mustSQL("sql/queries/insert_aux_device.sql")
-	sqlLatestInverters    = mustSQL("sql/queries/latest_inverters.sql")
-	sqlInverterSeries     = mustSQL("sql/queries/inverter_series.sql")
-	sqlLatestAuxDevices   = mustSQL("sql/queries/latest_aux_devices.sql")
-	sqlOpenOutage              = mustSQL("sql/queries/open_outage.sql")
-	sqlCloseOutage             = mustSQL("sql/queries/close_outage.sql")
-	sqlListOpenOutages         = mustSQL("sql/queries/list_open_outages.sql")
-	sqlInsertMaintenanceEvent  = mustSQL("sql/queries/insert_maintenance_event.sql")
-	sqlListMaintenanceEvents   = mustSQL("sql/queries/list_maintenance_events.sql")
+	sqlInsertReading          = mustSQL("sql/queries/insert_reading.sql")
+	sqlLatestReading          = mustSQL("sql/queries/latest_reading.sql")
+	sqlEarliestReading        = mustSQL("sql/queries/earliest_reading_at.sql")
+	sqlAveragePower           = mustSQL("sql/queries/average_power.sql")
+	sqlAveragePowerRollup     = mustSQL("sql/queries/average_power_rollup.sql")
+	sqlEnergyDelta            = mustSQL("sql/queries/energy_delta.sql")
+	sqlEnergyDeltaRollup      = mustSQL("sql/queries/energy_delta_rollup.sql")
+	sqlSeriesRaw              = mustSQL("sql/queries/series_raw.sql")
+	sqlSeriesHourly           = mustSQL("sql/queries/series_hourly.sql")
+	sqlSeriesHourly6h         = mustSQL("sql/queries/series_hourly_6h.sql")
+	sqlSeriesDaily            = mustSQL("sql/queries/series_daily.sql")
+	sqlUpsertHourly           = mustSQL("sql/queries/upsert_hourly.sql")
+	sqlUpsertDaily            = mustSQL("sql/queries/upsert_daily.sql")
+	sqlBackfillHourly         = mustSQL("sql/queries/backfill_hourly.sql")
+	sqlBackfillDaily          = mustSQL("sql/queries/backfill_daily.sql")
+	sqlCountReadings          = mustSQL("sql/queries/count_readings.sql")
+	sqlInsertInverter         = mustSQL("sql/queries/insert_inverter_reading.sql")
+	sqlInsertAuxDevice        = mustSQL("sql/queries/insert_aux_device.sql")
+	sqlLatestInverters        = mustSQL("sql/queries/latest_inverters.sql")
+	sqlInverterSeries         = mustSQL("sql/queries/inverter_series.sql")
+	sqlLatestAuxDevices       = mustSQL("sql/queries/latest_aux_devices.sql")
+	sqlOpenOutage             = mustSQL("sql/queries/open_outage.sql")
+	sqlCloseOutage            = mustSQL("sql/queries/close_outage.sql")
+	sqlListOpenOutages        = mustSQL("sql/queries/list_open_outages.sql")
+	sqlInsertMaintenanceEvent = mustSQL("sql/queries/insert_maintenance_event.sql")
+	sqlListMaintenanceEvents  = mustSQL("sql/queries/list_maintenance_events.sql")
+	sqlUpdateMaintenanceEvent = mustSQL("sql/queries/update_maintenance_event.sql")
+	sqlDeleteMaintenanceEvent = mustSQL("sql/queries/delete_maintenance_event.sql")
 )
 
 // Open opens (or creates) the SQLite database at path, applying any pending migrations.
@@ -654,6 +656,41 @@ func (s *Store) ListMaintenanceEvents(ctx context.Context) ([]pvs.MaintenanceEve
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) UpdateMaintenanceEvent(ctx context.Context, e pvs.MaintenanceEvent) error {
+	var endAt any
+	if !e.EndAt.IsZero() {
+		endAt = e.EndAt.Unix()
+	}
+	res, err := s.db.ExecContext(ctx, sqlUpdateMaintenanceEvent,
+		e.StartAt.Unix(), endAt, e.EventType, e.Notes, e.ID)
+	if err != nil {
+		return fmt.Errorf("update maintenance event: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update maintenance event: %w", err)
+	}
+	if n == 0 {
+		return pvs.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteMaintenanceEvent(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, sqlDeleteMaintenanceEvent, id)
+	if err != nil {
+		return fmt.Errorf("delete maintenance event: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete maintenance event: %w", err)
+	}
+	if n == 0 {
+		return pvs.ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) Checkpoint(ctx context.Context) error {
