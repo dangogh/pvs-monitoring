@@ -629,6 +629,29 @@
     .event-delete:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
     .event-delete:disabled { opacity: 0.5; cursor: default; }
 
+    .event-edit {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 0.15rem 0.6rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      margin-right: 0.4rem;
+    }
+    .event-edit:hover { border-color: var(--solar); color: var(--solar); }
+    .event-edit:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    .event-cancel {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 4px;
+      padding: 0.3rem 0.9rem;
+      cursor: pointer;
+    }
+    .event-cancel:hover { border-color: var(--solar); color: var(--solar); }
+
     .event-form {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -861,7 +884,7 @@
       <p id="events-empty" class="events-empty" hidden>No events recorded yet.</p>
     </div>
 
-    <div class="section-heading" style="margin-top:1rem"><span>Record New Event</span></div>
+    <div class="section-heading" style="margin-top:1rem"><span id="event-form-heading">Record New Event</span></div>
 
     <form id="event-form" class="event-form" novalidate>
       <div class="event-form-row">
@@ -881,7 +904,8 @@
         <textarea id="event-notes" rows="2" placeholder="Optional description…"></textarea>
       </div>
       <div class="event-form-actions">
-        <button type="submit" class="event-submit">Save Event</button>
+        <button type="submit" class="event-submit" id="event-submit">Save Event</button>
+        <button type="button" class="event-cancel" id="event-cancel" hidden>Cancel</button>
         <span id="event-form-status" aria-live="polite"></span>
       </div>
     </form>
