@@ -311,6 +311,8 @@ func (f *fakeStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent
 }
 func (f *fakeStore) UpdateMaintenanceEvent(_ context.Context, _ MaintenanceEvent) error { return nil }
 func (f *fakeStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error            { return nil }
+func (f *fakeStore) Settings(_ context.Context) (map[string]string, error)              { return nil, nil }
+func (f *fakeStore) SetSetting(_ context.Context, _, _ string) error                    { return nil }
 func (f *fakeStore) Checkpoint(_ context.Context) error                                 { return nil }
 func (f *fakeStore) Close() error                                                       { return nil }
 

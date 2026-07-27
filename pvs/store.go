@@ -73,6 +73,12 @@ type Store interface {
 	// DeleteMaintenanceEvent removes the event with the given ID. It returns
 	// ErrNotFound if no event has that ID.
 	DeleteMaintenanceEvent(ctx context.Context, id int64) error
+	// Settings returns all persisted configuration settings as a key→value map.
+	// An empty map (not an error) is returned when nothing has been stored yet.
+	Settings(ctx context.Context) (map[string]string, error)
+	// SetSetting persists a single configuration setting, overwriting any
+	// existing value for the same key.
+	SetSetting(ctx context.Context, key, value string) error
 	Checkpoint(ctx context.Context) error
 	Close() error
 }

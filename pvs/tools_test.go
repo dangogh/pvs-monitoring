@@ -49,6 +49,8 @@ func (f *toolsStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEven
 }
 func (f *toolsStore) UpdateMaintenanceEvent(_ context.Context, _ MaintenanceEvent) error { return nil }
 func (f *toolsStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error            { return nil }
+func (f *toolsStore) Settings(_ context.Context) (map[string]string, error)              { return nil, nil }
+func (f *toolsStore) SetSetting(_ context.Context, _, _ string) error                    { return nil }
 func (f *toolsStore) Checkpoint(_ context.Context) error                                 { return nil }
 func (f *toolsStore) Close() error                                                       { return nil }
 

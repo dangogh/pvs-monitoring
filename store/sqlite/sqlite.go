@@ -42,6 +42,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/006_maintenance_events.sql"),
 	mustSQL("sql/migrations/007_maintenance_event_timestamps.sql"),
 	mustSQL("sql/migrations/008_inverter_serial_received_index.sql"),
+	mustSQL("sql/migrations/009_settings.sql"),
 }
 
 var (
@@ -73,6 +74,8 @@ var (
 	sqlListMaintenanceEvents  = mustSQL("sql/queries/list_maintenance_events.sql")
 	sqlUpdateMaintenanceEvent = mustSQL("sql/queries/update_maintenance_event.sql")
 	sqlDeleteMaintenanceEvent = mustSQL("sql/queries/delete_maintenance_event.sql")
+	sqlGetSettings            = mustSQL("sql/queries/get_settings.sql")
+	sqlUpsertSetting          = mustSQL("sql/queries/upsert_setting.sql")
 )
 
 // Open opens (or creates) the SQLite database at path, applying any pending migrations.
@@ -689,6 +692,31 @@ func (s *Store) DeleteMaintenanceEvent(ctx context.Context, id int64) error {
 	}
 	if n == 0 {
 		return pvs.ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, sqlGetSettings)
+	if err != nil {
+		return nil, fmt.Errorf("get settings: %w", err)
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scan setting: %w", err)
+		}
+		settings[key] = value
+	}
+	return settings, rows.Err()
+}
+
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	if _, err := s.db.ExecContext(ctx, sqlUpsertSetting, key, value, time.Now().Unix()); err != nil {
+		return fmt.Errorf("set setting %q: %w", key, err)
 	}
 	return nil
 }

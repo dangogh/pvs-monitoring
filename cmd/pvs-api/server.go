@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
 )
@@ -29,6 +30,8 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("POST /api/maintenance-events", s.handleCreateMaintenanceEvent)
 	mux.HandleFunc("PATCH /api/maintenance-events/{id}", s.handleUpdateMaintenanceEvent)
 	mux.HandleFunc("DELETE /api/maintenance-events/{id}", s.handleDeleteMaintenanceEvent)
+	mux.HandleFunc("GET /api/config", s.handleGetConfig)
+	mux.HandleFunc("PATCH /api/config", s.handleUpdateConfig)
 	return corsMiddleware(mux)
 }
 
@@ -340,6 +343,77 @@ func (s *apiServer) handleDeleteMaintenanceEvent(w http.ResponseWriter, r *http.
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// passwordMask is returned in place of the stored device-list password so the
+// credential is never echoed to the client. A PATCH that sends this sentinel
+// back leaves the stored value untouched.
+const passwordMask = "********"
+
+// maskConfig hides the device-list password value in a settings map.
+func maskConfig(settings map[string]string) map[string]string {
+	out := make(map[string]string, len(settings))
+	for k, v := range settings {
+		if k == config.KeyDeviceListPassword && v != "" {
+			v = passwordMask
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func (s *apiServer) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	settings, err := s.store.Settings(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, maskConfig(settings))
+}
+
+// configKeys is the set of settings a client may write via PATCH /api/config.
+var configKeys = map[string]bool{
+	config.KeyAddr:                     true,
+	config.KeyReconnectInitialInterval: true,
+	config.KeyReconnectMaxInterval:     true,
+	config.KeyStaleThreshold:           true,
+	config.KeyDeviceListURL:            true,
+	config.KeyDeviceListAuthURL:        true,
+	config.KeyDeviceListInterval:       true,
+	config.KeyDeviceListUsername:       true,
+	config.KeyDeviceListPassword:       true,
+	config.KeyDeviceListTLSFingerprint: true,
+}
+
+func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	var req map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Validate all keys before writing any, so a bad request is atomic.
+	for key := range req {
+		if !configKeys[key] {
+			http.Error(w, "unknown config key: "+key, http.StatusBadRequest)
+			return
+		}
+	}
+	for key, val := range req {
+		// The masked sentinel means "unchanged" — don't clobber the stored password.
+		if key == config.KeyDeviceListPassword && val == passwordMask {
+			continue
+		}
+		if err := s.store.SetSetting(r.Context(), key, val); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	settings, err := s.store.Settings(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, maskConfig(settings))
 }
 
 type inverterSeriesPoint struct {
