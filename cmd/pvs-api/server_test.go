@@ -36,6 +36,10 @@ type fakeStore struct {
 	updateErr         error
 	deletedEventID    int64
 	deleteErr         error
+	settings          map[string]string
+	settingsErr       error
+	setSettings       map[string]string // records SetSetting calls
+	setSettingErr     error
 }
 
 func (f *fakeStore) SaveReading(_ context.Context, _ *pvs.Reading) error { return nil }
@@ -78,6 +82,19 @@ func (f *fakeStore) UpdateMaintenanceEvent(_ context.Context, e pvs.MaintenanceE
 func (f *fakeStore) DeleteMaintenanceEvent(_ context.Context, id int64) error {
 	f.deletedEventID = id
 	return f.deleteErr
+}
+func (f *fakeStore) Settings(_ context.Context) (map[string]string, error) {
+	return f.settings, f.settingsErr
+}
+func (f *fakeStore) SetSetting(_ context.Context, key, value string) error {
+	if f.setSettingErr != nil {
+		return f.setSettingErr
+	}
+	if f.setSettings == nil {
+		f.setSettings = make(map[string]string)
+	}
+	f.setSettings[key] = value
+	return nil
 }
 func (f *fakeStore) Checkpoint(_ context.Context) error { return nil }
 func (f *fakeStore) Close() error                       { return nil }
@@ -631,4 +648,73 @@ func TestHandleVersion(t *testing.T) {
 
 func itoa(n int64) string {
 	return strconv.FormatInt(n, 10)
+}
+
+// --- handleGetConfig / handleUpdateConfig ---
+
+func TestHandleGetConfig_MasksPassword(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{
+		"addr":                 "ws://host:9002",
+		"device_list.password": "abc12",
+	}}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got["addr"] != "ws://host:9002" {
+		t.Errorf("addr not returned: %q", got["addr"])
+	}
+	if got["device_list.password"] != "********" {
+		t.Errorf("password not masked: %q", got["device_list.password"])
+	}
+}
+
+func TestHandleUpdateConfig_OK(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{}}
+	body := `{"addr":"ws://new:9002","stale_threshold":"9s"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/config", strings.NewReader(body))
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if store.setSettings["addr"] != "ws://new:9002" || store.setSettings["stale_threshold"] != "9s" {
+		t.Errorf("settings not persisted: %+v", store.setSettings)
+	}
+}
+
+func TestHandleUpdateConfig_UnknownKeyRejected(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{}}
+	body := `{"addr":"ws://new:9002","bogus":"x"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/config", strings.NewReader(body))
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+	// Atomic: no keys should have been written when validation fails.
+	if len(store.setSettings) != 0 {
+		t.Errorf("expected no writes on rejected request, got %+v", store.setSettings)
+	}
+}
+
+func TestHandleUpdateConfig_MaskedPasswordNotClobbered(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{"device_list.password": "orig"}}
+	body := `{"device_list.password":"********"}`
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPatch, "/api/config", strings.NewReader(body))
+	newServer(store).routes().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// The masked sentinel means "unchanged" — SetSetting must not be called for it.
+	if _, ok := store.setSettings["device_list.password"]; ok {
+		t.Errorf("masked password should not have been written")
+	}
 }

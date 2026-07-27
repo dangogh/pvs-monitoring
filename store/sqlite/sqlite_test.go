@@ -683,3 +683,26 @@ func TestDeleteMaintenanceEvent(t *testing.T) {
 	// Deleting again reports not found.
 	assert.ErrorIs(t, s.DeleteMaintenanceEvent(ctx, id), pvs.ErrNotFound)
 }
+
+func TestSettingsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	s := openTestStore(t)
+
+	// Empty on a fresh DB.
+	got, err := s.Settings(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	require.NoError(t, s.SetSetting(ctx, "addr", "ws://host:9002"))
+	require.NoError(t, s.SetSetting(ctx, "stale_threshold", "10s"))
+
+	got, err = s.Settings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"addr": "ws://host:9002", "stale_threshold": "10s"}, got)
+
+	// Upsert overwrites the existing key.
+	require.NoError(t, s.SetSetting(ctx, "addr", "ws://other:9002"))
+	got, err = s.Settings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "ws://other:9002", got["addr"])
+}

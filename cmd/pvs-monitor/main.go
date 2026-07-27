@@ -60,19 +60,6 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		return err
 	}
 
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
-	slog.Info("config loaded", "path", cfgPath)
-
-	// Precedence: flag > env > config file > default.
-	if addr != "" {
-		cfg.Addr = addr
-	} else if env := os.Getenv("PVS_ADDR"); env != "" {
-		cfg.Addr = env
-	}
-
 	level := slog.LevelInfo
 	if verbose {
 		level = slog.LevelDebug
@@ -80,6 +67,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 	logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: level}))
 
 	var store pvs.Store
+	var settingsStore config.SettingsStore
 	if dbPath != "" {
 		s, err := sqlite.Open(dbPath)
 		if err != nil {
@@ -87,9 +75,44 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		}
 		defer s.Close()
 		store = s
+		settingsStore = s
 		logger.Info("sqlite store opened", "path", dbPath)
 	}
 	logger.Info("pvs-monitor starting", "version", version.Version)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	logger.Info("config loaded", "path", cfgPath)
+
+	// Overlay DB-backed settings on top of the file config. On first run the
+	// settings table is seeded from the file so existing installs migrate
+	// transparently; thereafter the DB is authoritative.
+	if settingsStore != nil {
+		// Startup config resolution uses its own context, independent of the
+		// run/shutdown signal context, so a fast local DB read isn't aborted.
+		startupCtx := context.Background()
+		seeded, err := config.SeedSettingsIfEmpty(startupCtx, settingsStore, cfg)
+		if err != nil {
+			return err
+		}
+		if seeded {
+			logger.Info("seeded settings table from config file")
+		}
+		cfg, err = config.LoadWithStore(startupCtx, cfgPath, settingsStore)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Precedence: flag > env > DB > config file > default. Flag and env win,
+	// so they are applied last, on top of the DB overlay above.
+	if addr != "" {
+		cfg.Addr = addr
+	} else if env := os.Getenv("PVS_ADDR"); env != "" {
+		cfg.Addr = env
+	}
 
 	monitor := pvs.NewMonitor(cfg.Addr, cfg, store, logger)
 	go func() {

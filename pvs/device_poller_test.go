@@ -463,6 +463,12 @@ func (f *fakeDeviceStore) UpdateMaintenanceEvent(_ context.Context, _ Maintenanc
 func (f *fakeDeviceStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error {
 	return nil
 }
+func (f *fakeDeviceStore) Settings(_ context.Context) (map[string]string, error) {
+	return nil, nil
+}
+func (f *fakeDeviceStore) SetSetting(_ context.Context, _, _ string) error {
+	return nil
+}
 func (f *fakeDeviceStore) Checkpoint(_ context.Context) error { return nil }
 func (f *fakeDeviceStore) Close() error                       { return nil }
 
