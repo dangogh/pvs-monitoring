@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -83,7 +84,10 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
-	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	// _txlock=immediate makes db.Begin() acquire the write lock up front (BEGIN
+	// IMMEDIATE). Combined with busy_timeout, this serializes concurrently
+	// starting processes so schema migrations can't race (see migrate).
+	dsn := "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
@@ -293,17 +297,55 @@ var dataMigrations = map[int]func(*sql.Tx) error{
 	4: migrateV5,
 }
 
-func migrate(db *sql.DB) error {
-	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		return err
-	}
-
-	for i := version; i < len(migrations); i++ {
+// beginImmediate starts a write-locked transaction, retrying on lock
+// contention. With _txlock=immediate the write lock is taken at BEGIN, so this
+// serializes concurrently-starting processes. busy_timeout handles a steadily
+// held lock, but SQLite can short-circuit its busy handler and return SQLITE_BUSY
+// immediately under rapid acquire/release churn (its deadlock-avoidance path);
+// the bounded retry covers that case.
+func beginImmediate(db *sql.DB) (*sql.Tx, error) {
+	const maxWait = 30 * time.Second
+	deadline := time.Now().Add(maxWait)
+	for {
 		tx, err := db.Begin()
-		if err != nil {
-			return fmt.Errorf("begin migration %d: %w", i+1, err)
+		if err == nil {
+			return tx, nil
 		}
+		if isLocked(err) && time.Now().Before(deadline) {
+			time.Sleep(25 * time.Millisecond)
+			continue
+		}
+		return nil, err
+	}
+}
+
+func isLocked(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "database is locked") || strings.Contains(s, "SQLITE_BUSY")
+}
+
+func migrate(db *sql.DB) error {
+	// Each iteration reads user_version and applies the next migration inside a
+	// single write-locked (BEGIN IMMEDIATE, via _txlock=immediate) transaction.
+	// Reading the version inside the lock is what makes this safe against other
+	// processes opening the same DB concurrently: a second migrator blocks on
+	// BEGIN until the first commits, then re-reads the now-current version and
+	// finds nothing left to do instead of re-applying a migration.
+	for {
+		tx, err := beginImmediate(db)
+		if err != nil {
+			return fmt.Errorf("begin migration tx: %w", err)
+		}
+		var version int
+		if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return fmt.Errorf("read user_version: %w", err)
+		}
+		if version >= len(migrations) {
+			// Up to date — nothing changed, so rollback the empty tx and stop.
+			return tx.Rollback()
+		}
+		i := version
 		if _, err := tx.Exec(migrations[i]); err != nil {
 			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("migration %d: %w", i+1, err)
@@ -323,7 +365,6 @@ func migrate(db *sql.DB) error {
 		}
 		slog.Default().Info("applied database migration", "version", i+1)
 	}
-	return nil
 }
 
 func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {

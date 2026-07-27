@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -705,4 +706,44 @@ func TestSettingsRoundTrip(t *testing.T) {
 	got, err = s.Settings(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "ws://other:9002", got["addr"])
+}
+
+func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
+	// Simulate the four binaries opening the same DB file simultaneously on a
+	// schema-adding upgrade: every Open must migrate-or-skip cleanly, none may
+	// fail with a duplicate-migration error.
+	path := filepath.Join(t.TempDir(), "race.db")
+
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // release all at once to maximise contention
+			s, err := Open(path)
+			if err != nil {
+				errs <- err
+				return
+			}
+			s.Close()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	// DB ends at the latest schema version and is usable.
+	s, err := Open(path)
+	require.NoError(t, err)
+	defer s.Close()
+	var version int
+	require.NoError(t, s.db.QueryRow(`PRAGMA user_version`).Scan(&version))
+	assert.Equal(t, len(migrations), version)
+	require.NoError(t, s.SetSetting(context.Background(), "addr", "ws://ok:9002"))
 }
