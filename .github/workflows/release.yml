@@ -27,7 +27,7 @@ jobs:
           GOARCH=arm64 GOOS=darwin go build -ldflags="$LDFLAGS" -o bin/pvs-ui      ./cmd/pvs-ui
       - name: Archive
         run: tar -czf pvs-monitoring-darwin-arm64.tar.gz -C bin pvs-monitor pvs-mcp pvs-api pvs-ui
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: darwin-arm64
           path: pvs-monitoring-darwin-arm64.tar.gz
@@ -50,7 +50,7 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends devscripts debhelper fakeroot
       - name: Build .deb
         run: make deb
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: deb-arm64
           path: dist/*.deb
