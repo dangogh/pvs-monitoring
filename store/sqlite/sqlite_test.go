@@ -19,7 +19,7 @@ func openTestStore(t *testing.T) *Store {
 	t.Helper()
 	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	require.NoError(t, err)
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -41,7 +41,7 @@ func TestOpen(t *testing.T) {
 				p := filepath.Join(t.TempDir(), "readings.db")
 				s, err := Open(p)
 				require.NoError(t, err)
-				s.Close()
+				_ = s.Close()
 				return p
 			},
 		},
@@ -55,7 +55,7 @@ func TestOpen(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			s.Close()
+			_ = s.Close()
 		})
 	}
 }
@@ -517,7 +517,7 @@ func TestMigrateV5Backfill(t *testing.T) {
 	dsn := "file:" + dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Apply only schema migrations 0–3 (v4 schema, no rollup tables).
 	for i := range 4 {
@@ -729,7 +729,7 @@ func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
 				errs <- err
 				return
 			}
-			s.Close()
+			_ = s.Close()
 		}()
 	}
 	close(start)
@@ -742,7 +742,7 @@ func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
 	// DB ends at the latest schema version and is usable.
 	s, err := Open(path)
 	require.NoError(t, err)
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	var version int
 	require.NoError(t, s.db.QueryRow(`PRAGMA user_version`).Scan(&version))
 	assert.Equal(t, len(migrations), version)
@@ -757,12 +757,12 @@ func TestOpenReadOnlyReadsWithoutMigrating(t *testing.T) {
 	w, err := Open(path)
 	require.NoError(t, err)
 	require.NoError(t, w.SetSetting(ctx, "addr", "ws://ro:9002"))
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	// Read-only open sees the data and is at the full schema version.
 	ro, err := OpenReadOnly(path)
 	require.NoError(t, err)
-	defer ro.Close()
+	defer func() { _ = ro.Close() }()
 
 	got, err := ro.Settings(ctx)
 	require.NoError(t, err)
@@ -777,11 +777,11 @@ func TestOpenReadOnlyCannotWrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ro.db")
 	w, err := Open(path)
 	require.NoError(t, err)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	ro, err := OpenReadOnly(path)
 	require.NoError(t, err)
-	defer ro.Close()
+	defer func() { _ = ro.Close() }()
 
 	// A write through the read-only connection must be rejected by SQLite.
 	err = ro.SetSetting(context.Background(), "addr", "nope")

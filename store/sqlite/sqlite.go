@@ -93,7 +93,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite %s: %w", path, err)
 	}
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return &Store{db: db}, nil
@@ -118,7 +118,7 @@ func OpenReadOnly(path string) (*Store, error) {
 			return store, nil
 		}
 		if store != nil {
-			store.Close()
+			_ = store.Close()
 		}
 		if time.Now().After(deadline) {
 			if err != nil {
@@ -148,7 +148,7 @@ func tryOpenReadOnly(path string) (*Store, int, error) {
 	}
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, 0, err
 	}
 	return &Store{db: db}, version, nil
@@ -160,7 +160,7 @@ func migrateV2(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var receivedAt int64
@@ -211,7 +211,7 @@ func migrateV3(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	defer pvRows.Close()
+	defer func() { _ = pvRows.Close() }()
 	for pvRows.Next() {
 		var ra int64
 		var serial, state, stateDescr string
@@ -239,7 +239,7 @@ func migrateV3(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	defer mRows.Close()
+	defer func() { _ = mRows.Close() }()
 	for mRows.Next() {
 		var ra int64
 		var serial, state, stateDescr, subtype string
@@ -280,7 +280,7 @@ func migrateV4(tx *sql.Tx) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type outageRow struct {
 		serial    string
@@ -584,7 +584,7 @@ func (s *Store) LatestInverters(ctx context.Context) ([]pvs.InverterDevice, erro
 	if err != nil {
 		return nil, fmt.Errorf("query latest inverters: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []pvs.InverterDevice
 	for rows.Next() {
 		var d pvs.InverterDevice
@@ -608,7 +608,7 @@ func (s *Store) InverterSeries(ctx context.Context, since, until time.Time) ([]p
 	if err != nil {
 		return nil, fmt.Errorf("query inverter series: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []pvs.InverterSeriesPoint
 	for rows.Next() {
 		var bucket int64
@@ -627,7 +627,7 @@ func (s *Store) LatestAuxDevices(ctx context.Context) ([]pvs.AuxDevice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query latest aux devices: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []pvs.AuxDevice
 	for rows.Next() {
 		var d pvs.AuxDevice
@@ -668,7 +668,7 @@ func (s *Store) ReadingsSeries(ctx context.Context, since, until time.Time, buck
 	if err != nil {
 		return nil, fmt.Errorf("query series: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var pts []pvs.SeriesPoint
 	for rows.Next() {
 		var bucket int64
@@ -706,7 +706,7 @@ func (s *Store) ListOpenInverterOutages(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query open outages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var serials []string
 	for rows.Next() {
 		var serial string
@@ -736,7 +736,7 @@ func (s *Store) ListMaintenanceEvents(ctx context.Context) ([]pvs.MaintenanceEve
 	if err != nil {
 		return nil, fmt.Errorf("list maintenance events: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []pvs.MaintenanceEvent
 	for rows.Next() {
@@ -797,7 +797,7 @@ func (s *Store) Settings(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get settings: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	settings := make(map[string]string)
 	for rows.Next() {

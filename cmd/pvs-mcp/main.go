@@ -58,7 +58,7 @@ func run(args []string, logOut io.Writer, transport mcp.Transport) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	logger.Info("pvs-mcp starting", "db", dbPath)
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "pvs-mcp", Version: "0.1.0"}, nil)

@@ -60,7 +60,7 @@ func run(args []string, ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {

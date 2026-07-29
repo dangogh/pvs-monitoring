@@ -253,7 +253,7 @@ func (p *DevicePoller) enableTelemetryWS(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("enable telemetry: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	p.logger.Debug("telemetry response", "status", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
@@ -276,7 +276,7 @@ func (p *DevicePoller) login(ctx context.Context) (*http.Cookie, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	p.logger.Debug("auth response", "status", resp.StatusCode)
 
@@ -312,7 +312,7 @@ func (p *DevicePoller) fetch(ctx context.Context) ([]Device, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch device list: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	p.logger.Debug("device list response", "status", resp.StatusCode)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
