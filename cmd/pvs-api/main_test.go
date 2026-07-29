@@ -46,6 +46,22 @@ func TestRun_TLSMismatch(t *testing.T) {
 // store/sqlite (TestOpenReadOnlyMissingDBFails, TestOpenReadOnlyTimesOutWhenNeverReady);
 // exercising it through run() here would incur the full readiness-wait timeout.
 
+func TestServe_UnreadableTLSKey(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+
+	// TLS requested but the key can't be read: serve must fail fast with an
+	// actionable message rather than a bare permission/not-found error.
+	err = serve(context.Background(), &fakeStore{}, ln, "cert.pem", "/no/such/server.key", logger)
+	if err == nil || !strings.Contains(err.Error(), "cannot read TLS key") {
+		t.Fatalf("expected clear TLS key error, got %v", err)
+	}
+}
+
 func TestServe_StartsAndStops(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

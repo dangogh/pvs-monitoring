@@ -29,8 +29,18 @@ if [ "$1" = "configure" ]; then
             -days 3650 -nodes \
             -keyout /var/lib/pvs-monitor/server.key -out /var/lib/pvs-monitor/server.crt \
             -subj "/CN=$(hostname)" 2>/dev/null || true
-        chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor/server.key /var/lib/pvs-monitor/server.crt
+    fi
+    # Fix TLS file ownership/mode on every install, not only when we generated
+    # them. A cert pre-seeded or created out-of-band (e.g. root:root 0600) would
+    # otherwise leave pvs-api, which runs as pvs-monitoring, unable to read its
+    # key and crash-looping (see #56).
+    if [ -f /var/lib/pvs-monitor/server.key ]; then
+        chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor/server.key
         chmod 640 /var/lib/pvs-monitor/server.key
+    fi
+    if [ -f /var/lib/pvs-monitor/server.crt ]; then
+        chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor/server.crt
+        chmod 644 /var/lib/pvs-monitor/server.crt
     fi
     
     # Enable services (but don't start them yet — user must configure first)

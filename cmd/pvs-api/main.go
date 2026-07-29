@@ -78,8 +78,17 @@ func serve(ctx context.Context, store pvs.Store, ln net.Listener, tlsCert, tlsKe
 		_ = httpSrv.Shutdown(context.Background())
 	}()
 
-	logger.Info("pvs-api listening", "addr", ln.Addr(), "tls", tlsCert != "", "version", version.Version)
 	var err error
+	if tlsCert != "" {
+		// Surface an unreadable key with an actionable message rather than the
+		// bare "permission denied" ServeTLS would otherwise bury (see #56).
+		if f, ferr := os.Open(tlsKey); ferr != nil {
+			return fmt.Errorf("cannot read TLS key %s: %w (it must be readable by the user running pvs-api)", tlsKey, ferr)
+		} else {
+			_ = f.Close()
+		}
+	}
+	logger.Info("pvs-api listening", "addr", ln.Addr(), "tls", tlsCert != "", "version", version.Version)
 	if tlsCert != "" {
 		err = httpSrv.ServeTLS(ln, tlsCert, tlsKey)
 	} else {
