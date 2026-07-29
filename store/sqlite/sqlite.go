@@ -99,6 +99,61 @@ func Open(path string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+// OpenReadOnly opens the database read-only (mode=ro) without running
+// migrations. Read-only consumers (pvs-api, pvs-mcp) use this so that only the
+// writer (pvs-monitor) ever migrates the schema — the migration path is
+// exclusively pvs-monitor's.
+//
+// On an upgrade a read-only service may start before pvs-monitor has finished
+// migrating (or before the DB file exists at all on a fresh install), so this
+// waits briefly for the database to exist and reach the schema version this
+// binary was built for, then fails with a clear error rather than serving
+// against a missing or stale schema.
+func OpenReadOnly(path string) (*Store, error) {
+	want := len(migrations)
+	deadline := time.Now().Add(readOnlyReadyWait)
+	for {
+		store, version, err := tryOpenReadOnly(path)
+		if err == nil && version >= want {
+			return store, nil
+		}
+		if store != nil {
+			store.Close()
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return nil, fmt.Errorf("open read-only %s: %w (is pvs-monitor running?)", path, err)
+			}
+			return nil, fmt.Errorf("database %s schema not ready: at version %d, need %d (is pvs-monitor running?)", path, version, want)
+		}
+		time.Sleep(readOnlyPollEvery)
+	}
+}
+
+// Timing for OpenReadOnly's readiness wait. Package vars (not consts) so tests
+// can shorten them.
+var (
+	readOnlyReadyWait = 20 * time.Second
+	readOnlyPollEvery = 250 * time.Millisecond
+)
+
+// tryOpenReadOnly makes one read-only open attempt and reports the schema
+// version. The first query is what actually opens the file, so a missing file
+// surfaces here as an error.
+func tryOpenReadOnly(path string) (*Store, int, error) {
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&mode=ro"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, 0, err
+	}
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		db.Close()
+		return nil, 0, err
+	}
+	return &Store{db: db}, version, nil
+}
+
 // migrateV2 copies rows from device_readings into the typed tables, then drops device_readings.
 func migrateV2(tx *sql.Tx) error {
 	rows, err := tx.Query(`SELECT received_at, device_type, serial, payload FROM device_readings`)

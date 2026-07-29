@@ -42,12 +42,9 @@ func TestRun_TLSMismatch(t *testing.T) {
 	}
 }
 
-func TestRun_BadDB(t *testing.T) {
-	err := run([]string{"-db", "/no/such/dir/readings.db"}, context.Background())
-	if err == nil {
-		t.Fatal("expected error opening nonexistent db path")
-	}
-}
+// Bad/missing-DB handling for the read-only open path is covered quickly in
+// store/sqlite (TestOpenReadOnlyMissingDBFails, TestOpenReadOnlyTimesOutWhenNeverReady);
+// exercising it through run() here would incur the full readiness-wait timeout.
 
 func TestServe_StartsAndStops(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

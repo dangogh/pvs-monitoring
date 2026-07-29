@@ -56,7 +56,7 @@ func run(args []string, ctx context.Context) error {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	store, err := sqlite.Open(dbPath)
+	store, err := sqlite.OpenReadOnly(dbPath)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}

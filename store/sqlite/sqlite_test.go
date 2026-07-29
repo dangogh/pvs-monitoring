@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -746,4 +747,69 @@ func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
 	require.NoError(t, s.db.QueryRow(`PRAGMA user_version`).Scan(&version))
 	assert.Equal(t, len(migrations), version)
 	require.NoError(t, s.SetSetting(context.Background(), "addr", "ws://ok:9002"))
+}
+
+func TestOpenReadOnlyReadsWithoutMigrating(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "ro.db")
+
+	// Writer creates + migrates the DB and stores a setting.
+	w, err := Open(path)
+	require.NoError(t, err)
+	require.NoError(t, w.SetSetting(ctx, "addr", "ws://ro:9002"))
+	defer w.Close()
+
+	// Read-only open sees the data and is at the full schema version.
+	ro, err := OpenReadOnly(path)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	got, err := ro.Settings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "ws://ro:9002", got["addr"])
+
+	var version int
+	require.NoError(t, ro.db.QueryRow(`PRAGMA user_version`).Scan(&version))
+	assert.Equal(t, len(migrations), version)
+}
+
+func TestOpenReadOnlyCannotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ro.db")
+	w, err := Open(path)
+	require.NoError(t, err)
+	defer w.Close()
+
+	ro, err := OpenReadOnly(path)
+	require.NoError(t, err)
+	defer ro.Close()
+
+	// A write through the read-only connection must be rejected by SQLite.
+	err = ro.SetSetting(context.Background(), "addr", "nope")
+	require.Error(t, err)
+}
+
+func TestOpenReadOnlyMissingDBFails(t *testing.T) {
+	// A single read-only attempt against a non-existent DB must error (rather
+	// than create the file); this is the per-attempt failure OpenReadOnly polls
+	// on until pvs-monitor creates the DB, then reports after its deadline.
+	path := filepath.Join(t.TempDir(), "never.db")
+	_, _, err := tryOpenReadOnly(path)
+	require.Error(t, err, "opening a non-existent DB read-only should error")
+}
+
+func TestOpenReadOnlyTimesOutWhenNeverReady(t *testing.T) {
+	// With a short readiness window and no writer ever creating the DB,
+	// OpenReadOnly must give up with a clear "not ready" error, not hang or
+	// create the file.
+	defer func(w, p time.Duration) { readOnlyReadyWait, readOnlyPollEvery = w, p }(readOnlyReadyWait, readOnlyPollEvery)
+	readOnlyReadyWait, readOnlyPollEvery = 200*time.Millisecond, 40*time.Millisecond
+
+	path := filepath.Join(t.TempDir(), "never.db")
+	start := time.Now()
+	_, err := OpenReadOnly(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pvs-monitor")
+	assert.Less(t, time.Since(start), 2*time.Second)
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "read-only open must not create the DB file")
 }

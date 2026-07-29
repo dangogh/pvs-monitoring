@@ -1,7 +1,10 @@
 [Unit]
 Description=PVS6 solar data API
-After=network-online.target
+After=network-online.target pvs-monitor.service
 Wants=network-online.target
+# pvs-api opens the DB read-only and does not migrate; pvs-monitor is the
+# writer/migrator, so start it first to minimise the read-only readiness wait.
+Wants=pvs-monitor.service
 
 [Service]
 User=pvs-monitoring
