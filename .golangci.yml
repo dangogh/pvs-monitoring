@@ -1,0 +1,7 @@
+version: "2"
+
+# Report every finding rather than golangci-lint's default per-linter and
+# duplicate caps, so CI surfaces the full picture in one pass.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

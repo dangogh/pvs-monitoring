@@ -73,7 +73,7 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("open db: %w", err)
 		}
-		defer s.Close()
+		defer func() { _ = s.Close() }()
 		store = s
 		settingsStore = s
 		logger.Info("sqlite store opened", "path", dbPath)

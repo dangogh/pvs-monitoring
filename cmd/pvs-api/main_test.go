@@ -51,7 +51,7 @@ func TestServe_UnreadableTLSKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// TLS requested but the key can't be read: serve must fail fast with an
@@ -84,7 +84,7 @@ func TestServe_StartsAndStops(t *testing.T) {
 		cancel()
 		t.Fatalf("server not ready: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	cancel()
 	if err := <-done; err != nil {
