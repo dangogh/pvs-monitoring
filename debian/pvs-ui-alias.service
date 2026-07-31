@@ -1,0 +1,12 @@
+[Unit]
+Description=Publish friendly mDNS alias for the PVS dashboard
+After=avahi-daemon.service network-online.target pvs-ui.service
+Wants=avahi-daemon.service network-online.target
+
+[Service]
+ExecStart=/usr/bin/pvs-ui-alias
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
