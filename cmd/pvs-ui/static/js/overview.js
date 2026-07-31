@@ -1,6 +1,6 @@
 'use strict';
 
-import { fmt1, fmtKWh, setValueAnimated, flashCard } from './display.js';
+import { fmt1, fmtKWh, setValue } from './display.js';
 import { state } from './state.js';
 import { prefillEventRange } from './events.js';
 
@@ -20,8 +20,8 @@ export function updateCurrent(c) {
   const loadEl    = document.getElementById('load-kw');
   const prodCard  = document.querySelector('.stat-card.production');
   const usageCard = document.querySelector('.stat-card.usage');
-  if (setValueAnimated(solarEl, fmt1(c.solar_kw))) flashCard(prodCard);
-  if (setValueAnimated(loadEl,  fmt1(c.load_kw)))  flashCard(usageCard);
+  setValue(solarEl, fmt1(c.solar_kw));
+  setValue(loadEl,  fmt1(c.load_kw));
   prodCard.setAttribute('aria-label', 'Solar production: ' + fmt1(c.solar_kw) + ' kilowatts');
   usageCard.setAttribute('aria-label', 'Home usage: ' + fmt1(c.load_kw) + ' kilowatts');
 
@@ -31,7 +31,7 @@ export function updateCurrent(c) {
   const cardEl  = document.getElementById('net-card');
 
   const exporting = netKW <= 0;
-  if (setValueAnimated(netEl, fmt1(Math.abs(netKW)))) flashCard(cardEl);
+  setValue(netEl, fmt1(Math.abs(netKW)));
   labelEl.textContent = exporting ? 'Exporting' : 'Importing';
   cardEl.className    = 'stat-card ' + (exporting ? 'net-export' : 'net-import');
   cardEl.setAttribute('aria-label', (exporting ? 'Exporting to grid: ' : 'Importing from grid: ') + fmt1(Math.abs(netKW)) + ' kilowatts');
@@ -62,16 +62,16 @@ export function updateSummary(s, label) {
   const avgEl   = document.getElementById('sum-avg');
   const netEl   = document.getElementById('sum-net');
 
-  if (setValueAnimated(solarEl, fmtKWh(s.solar_kwh))) flashCard(solarEl.parentElement);
-  if (setValueAnimated(loadEl,  fmtKWh(s.load_kwh)))  flashCard(loadEl.parentElement);
-  if (setValueAnimated(avgEl,   fmt1(s.avg_solar_kw))) flashCard(avgEl.parentElement);
+  setValue(solarEl, fmtKWh(s.solar_kwh));
+  setValue(loadEl,  fmtKWh(s.load_kwh));
+  setValue(avgEl,   fmt1(s.avg_solar_kw));
 
   solarEl.parentElement.setAttribute('aria-label', 'Energy produced: ' + fmtKWh(s.solar_kwh) + ' kilowatt-hours');
   loadEl.parentElement.setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
   avgEl.parentElement.setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
 
   const net = s.net_kwh;
-  if (setValueAnimated(netEl, fmtKWh(Math.abs(net)))) flashCard(netEl.parentElement);
+  setValue(netEl, fmtKWh(Math.abs(net)));
   const netUnit = net < 0 ? 'kWh exported' : 'kWh imported';
   netEl.parentElement.querySelector('.summary-unit').textContent = netUnit;
   netEl.parentElement.setAttribute('aria-label', (net < 0 ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
