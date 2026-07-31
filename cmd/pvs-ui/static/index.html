@@ -213,7 +213,7 @@
 
     .custom-range label { color: var(--muted); font-size: 0.85rem; }
 
-    .custom-range input[type="date"] {
+    .custom-range input[type="datetime-local"] {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -222,7 +222,7 @@
       padding: 0.35rem 0.6rem;
     }
 
-    .custom-range input[type="date"]:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+    .custom-range input[type="datetime-local"]:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
 
     #apply-custom {
       background: var(--solar);
@@ -847,9 +847,9 @@
       <button id="next-range" class="nav-btn" aria-label="Next period"     title="Next period"     hidden>&#8594;</button>
       <div class="custom-range" id="custom-range" role="group" aria-label="Custom date range">
         <label for="custom-since">From</label>
-        <input type="date" id="custom-since" aria-label="Start date">
+        <input type="datetime-local" id="custom-since" aria-label="Start date and time">
         <label for="custom-until">To</label>
-        <input type="date" id="custom-until" aria-label="End date">
+        <input type="datetime-local" id="custom-until" aria-label="End date and time">
         <button id="apply-custom">Apply</button>
       </div>
     </div>

@@ -311,9 +311,11 @@ export function resolveRange(name, customSince, customUntil) {
     case 'lifetime':
       return { since: 0, until, label: 'Lifetime' };
     case 'custom': {
+      // datetime-local values carry an explicit time, so use them as-is rather
+      // than padding the end to end-of-day as the old date-only inputs required.
       const s = Math.floor(new Date(customSince) / 1000);
-      const u = Math.floor(new Date(customUntil) / 1000) + 86399;
-      return { since: s, until: u, label: customSince + ' – ' + customUntil };
+      const u = Math.floor(new Date(customUntil) / 1000);
+      return { since: s, until: u, label: dateTimeRange(s * 1000, u * 1000) };
     }
     default:
       return { since: Math.floor(today / 1000), until, label: 'Today' };
@@ -357,6 +359,10 @@ export async function fetchAndRender(since, until, label, rangeName) {
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
     updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
+    // Reflect the actual charted window into the pickers. For Lifetime (or any
+    // range reaching before data exists) this reveals when monitoring began —
+    // an important clue — instead of a blank or epoch start.
+    if (!state.isLive) syncPickers(chartSince, until);
     renderChart(data.series, label, chartSince, until, rangeName, state.maintenanceEvents);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
@@ -371,6 +377,7 @@ export async function loadRange(name, customSince, customUntil) {
   state.lastSince = since;
   state.lastUntil = until;
   updateNavButtons(label);
+  if (!state.isLive) syncPickers(since, until);
   await fetchAndRender(since, until, label, name);
 }
 
@@ -437,6 +444,7 @@ export async function shiftRange(direction) {
   state.lastUntil = clampedUntil;
   const label = shiftLabel(state.currentRange, newSince, clampedUntil);
   updateNavButtons(label);
+  syncPickers(newSince, clampedUntil);
   await fetchAndRender(newSince, clampedUntil, label, state.currentRange);
 }
 
@@ -444,6 +452,29 @@ export async function shiftRange(direction) {
 let _prevBtn    = null;
 let _nextBtn    = null;
 let _navPeriod  = null;
+let _customRow  = null;
+let _customSinceEl = null;
+let _customUntilEl = null;
+
+// Format a Date as a datetime-local input value ("YYYY-MM-DDThh:mm") in local time.
+function toDateTimeLocal(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Reflect the currently rendered range into the From/To pickers and reveal them.
+// Called whenever a non-live range is loaded or shifted, so the pickers always
+// show the active window and can be adjusted from there.
+function syncPickers(sinceSec, untilSec) {
+  if (!_customRow) return;
+  if (_customSinceEl) _customSinceEl.value = sinceSec > 0 ? toDateTimeLocal(new Date(sinceSec * 1000)) : '';
+  if (_customUntilEl) _customUntilEl.value = toDateTimeLocal(new Date(untilSec * 1000));
+  _customRow.classList.add('visible');
+}
+
+function hidePickers() {
+  if (_customRow) _customRow.classList.remove('visible');
+}
 
 export function updateNavButtons(label) {
   if (!_prevBtn) return;
@@ -459,13 +490,11 @@ export function updateNavButtons(label) {
 }
 
 // ── Range select UI ───────────────────────────────────────────
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-
 export function initOverview() {
   const rangeSelect   = document.getElementById('range-select');
-  const customRow     = document.getElementById('custom-range');
-  const customSinceEl = document.getElementById('custom-since');
-  const customUntilEl = document.getElementById('custom-until');
+  _customRow          = document.getElementById('custom-range');
+  _customSinceEl      = document.getElementById('custom-since');
+  _customUntilEl      = document.getElementById('custom-until');
   const applyBtn      = document.getElementById('apply-custom');
   _prevBtn            = document.getElementById('prev-range');
   _nextBtn            = document.getElementById('next-range');
@@ -475,28 +504,37 @@ export function initOverview() {
     const val = rangeSelect.value;
     if (val === 'live') {
       state.isLive = true;
-      customRow.classList.remove('visible');
+      hidePickers();
       updateNavButtons();
       loadRange('today');
-    } else if (val === 'custom') {
-      state.isLive = false;
+      return;
+    }
+    // Any fixed range: load it, then loadRange/syncPickers reveals the pickers
+    // pre-filled with that range so it can be fine-tuned from there.
+    state.isLive = false;
+    if (val === 'custom') {
       state.currentRange = 'custom';
-      if (!customSinceEl.value) customSinceEl.value = todayStr();
-      if (!customUntilEl.value) customUntilEl.value = todayStr();
-      customRow.classList.add('visible');
-      updateNavButtons();
+      // Seed the pickers if empty (first use), then render that window.
+      if (!_customSinceEl.value || !_customUntilEl.value) {
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (!_customSinceEl.value) _customSinceEl.value = toDateTimeLocal(startOfToday);
+        if (!_customUntilEl.value) _customUntilEl.value = toDateTimeLocal(now);
+      }
+      loadRange('custom', _customSinceEl.value, _customUntilEl.value);
     } else {
-      state.isLive = false;
-      customRow.classList.remove('visible');
       state.currentRange = val;
-      loadRange(state.currentRange);
+      loadRange(val);
     }
   });
 
   applyBtn.addEventListener('click', () => {
-    const since = customSinceEl.value;
-    const until = customUntilEl.value;
+    const since = _customSinceEl.value;
+    const until = _customUntilEl.value;
     if (!since || !until) return;
+    // Editing the pickers turns the active window into a custom range.
+    state.currentRange = 'custom';
+    rangeSelect.value = 'custom';
     loadRange('custom', since, until);
   });
 
