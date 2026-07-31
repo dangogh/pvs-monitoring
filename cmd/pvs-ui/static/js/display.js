@@ -6,9 +6,15 @@ export function fmt2(n)  { return n == null ? '—' : n.toFixed(2); }
 export function fmtKWh(n){ return n == null ? '—' : n.toFixed(2); }
 
 // ── Animation helpers ─────────────────────────────────────────
+// Update a value with a brief fade, but only when it actually changed.
+// Returns true if the value changed (so callers can gate related animations
+// like flashCard) and false when the refresh left the value untouched — this
+// keeps the dashboard from strobing on every periodic poll.
 export function setValueAnimated(el, text) {
+  if (el.textContent === text) return false;
   el.style.opacity = '0.3';
   setTimeout(() => { el.textContent = text; el.style.opacity = ''; }, 150);
+  return true;
 }
 
 export function flashCard(el) {
