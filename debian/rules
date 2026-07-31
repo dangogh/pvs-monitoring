@@ -32,7 +32,12 @@ override_dh_auto_install:
 	install -D -m 644 debian/pvs-monitor.service $(DESTDIR)/etc/systemd/system/pvs-monitor.service
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
-	
+	install -D -m 644 debian/pvs-ui-alias.service $(DESTDIR)/etc/systemd/system/pvs-ui-alias.service
+
+	# Install the mDNS alias publisher + its default config
+	install -D -m 755 debian/pvs-ui-alias $(DESTDIR)/usr/bin/pvs-ui-alias
+	install -D -m 644 debian/ui-alias.conf $(DESTDIR)/etc/pvs-monitor/ui-alias.conf.dpkg-new
+
 	# Install example config (as both the example and the default live config)
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.example
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
