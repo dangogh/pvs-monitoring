@@ -4,7 +4,11 @@ After=pvs-api.service
 
 [Service]
 User=pvs-monitoring
-ExecStart=/usr/bin/pvs-ui -api https://localhost:8081 -assets /etc/pvs-monitor/assets
+# Serve on the default HTTP port so the dashboard is reachable at http://<host>
+# with no port suffix. CAP_NET_BIND_SERVICE lets the non-root service user bind
+# the privileged port 80.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=/usr/bin/pvs-ui -addr :80 -api https://localhost:8081 -assets /etc/pvs-monitor/assets
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
