@@ -63,11 +63,11 @@ describe('resolveRange', () => {
     expect(label).toBe('Lifetime');
   });
 
-  it('custom: calculates from provided dates', () => {
-    const { since, until, label } = resolveRange('custom', '2024-06-01', '2024-06-30');
-    expect(since).toBe(Math.floor(new Date('2024-06-01') / 1000));
-    expect(until).toBe(Math.floor(new Date('2024-06-30') / 1000) + 86399);
-    expect(label).toBe('2024-06-01 – 2024-06-30');
+  it('custom: uses provided datetimes as-is (no end-of-day padding)', () => {
+    const { since, until, label } = resolveRange('custom', '2024-06-01T08:00', '2024-06-30T17:30');
+    expect(since).toBe(Math.floor(new Date('2024-06-01T08:00') / 1000));
+    expect(until).toBe(Math.floor(new Date('2024-06-30T17:30') / 1000));
+    expect(label).toContain('–');
   });
 
   it('unknown range falls back to today', () => {
