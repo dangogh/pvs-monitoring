@@ -180,7 +180,7 @@
       white-space: nowrap;
     }
 
-    #range-select, #smooth-select {
+    #range-select, #smooth-solar, #smooth-load {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -190,10 +190,25 @@
       padding: 0.4rem 0.75rem;
     }
 
-    #range-select:focus, #smooth-select:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
+    #range-select:focus, #smooth-solar:focus, #smooth-load:focus { outline: 2px solid var(--solar); outline-offset: 2px; }
 
-    /* Push the smoothing control to the far end of the row. */
+    /* Push the smoothing controls to the far end of the row. */
     .range-spacer { flex: 1 1 auto; }
+
+    .smooth-group {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .smooth-title {
+      font-size: 0.85rem;
+      color: var(--muted);
+      font-weight: 600;
+      margin-right: 0.15rem;
+    }
+    /* Tint each select to match its line so the pairing is obvious. */
+    #smooth-solar { border-color: var(--solar); }
+    #smooth-load  { border-color: #60a5fa; }
 
     .custom-range {
       display: none;
@@ -846,13 +861,13 @@
         <button id="apply-custom">Apply</button>
       </div>
       <span class="range-spacer"></span>
-      <label for="smooth-select">Smoothing:</label>
-      <select id="smooth-select" aria-label="Smooth the chart with a moving average">
-        <option value="0">Off</option>
-        <option value="600" selected>10 min</option>
-        <option value="1800">30 min</option>
-        <option value="3600">1 hour</option>
-      </select>
+      <span class="smooth-group" role="group" aria-label="Chart smoothing">
+        <span class="smooth-title">Smoothing</span>
+        <label for="smooth-solar">Production</label>
+        <select id="smooth-solar" aria-label="Smooth production line"></select>
+        <label for="smooth-load">Usage</label>
+        <select id="smooth-load" aria-label="Smooth usage line"></select>
+      </span>
     </div>
 
     <section aria-label="Power chart" id="chart-container">

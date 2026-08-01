@@ -12,10 +12,12 @@ export const state = {
   lastSince:       null,
   lastUntil:       null,
 
-  // Chart smoothing: moving-average window in seconds (0 = off/raw).
-  // Defaults to 10 min so the curve reads cleanly without the minute-to-minute
-  // spikes; the Smoothing control can set it back to Off for raw data.
-  smoothing:       600,
+  // Chart smoothing: independent moving-average windows (seconds; 0 = off/raw)
+  // for the production and usage lines. The available windows scale with the
+  // visible span (see smoothingOptionsFor); values snap to the nearest option
+  // when the range changes. Usage defaults smoothed, production raw.
+  smoothingSolar:  0,
+  smoothingLoad:   600,
 
   // Panels
   panelsData:      [],
