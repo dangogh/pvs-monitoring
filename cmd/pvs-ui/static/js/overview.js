@@ -223,7 +223,117 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
   };
 }
 
+// Centered moving average of one field ('s' or 'l') over windowSec seconds.
+// Each point is averaged with its neighbours within ±window/2. Null points are
+// gap sentinels (see toSeriesPoints in pvs-api) and break the series into
+// segments so we never average across a data gap.
+function movingAvgField(series, key, windowSec) {
+  const halfMs = (windowSec * 1000) / 2;
+  const out = new Array(series.length);
+  for (let i = 0; i < series.length; i++) {
+    const p = series[i];
+    if (p.s == null && p.l == null) { out[i] = null; continue; } // gap
+    let sum = 0, n = 0;
+    for (let j = i; j >= 0; j--) {                 // expand left within window
+      const q = series[j];
+      if (q.s == null && q.l == null) break;
+      if (p.t - q.t > halfMs) break;
+      sum += q[key]; n++;
+    }
+    for (let j = i + 1; j < series.length; j++) {  // expand right within window
+      const q = series[j];
+      if (q.s == null && q.l == null) break;
+      if (q.t - p.t > halfMs) break;
+      sum += q[key]; n++;
+    }
+    out[i] = sum / n;
+  }
+  return out;
+}
+
+// Smooth the production and usage lines independently. A window of 0 leaves
+// that line raw. Returns the series unchanged when both are off.
+export function smoothSeries(series, solarWin, loadWin) {
+  if (!series || series.length === 0) return series;
+  if (!solarWin && !loadWin) return series;
+  const s = solarWin ? movingAvgField(series, 's', solarWin) : null;
+  const l = loadWin  ? movingAvgField(series, 'l', loadWin)  : null;
+  return series.map((p, i) => {
+    if (p.s == null && p.l == null) return p; // preserve gap sentinel
+    return { t: p.t, s: s ? s[i] : p.s, l: l ? l[i] : p.l };
+  });
+}
+
+// Smoothing windows (seconds) offered for a given visible span. Mirrors the
+// server's bucketSeconds tiers (pvs-api) so the smallest window is a few
+// multiples of the data resolution — anything finer would be a no-op.
+export function smoothingOptionsFor(spanSec) {
+  const HOUR = 3600, DAY = 86400;
+  let secs;
+  if      (spanSec <= 2 * DAY)   secs = [600, 1800, 3600, 7200];
+  else if (spanSec <= 7 * DAY)   secs = [2 * HOUR, 6 * HOUR, 12 * HOUR];
+  else if (spanSec <= 90 * DAY)  secs = [12 * HOUR, 2 * DAY, 7 * DAY];
+  else if (spanSec <  365 * DAY) secs = [2 * DAY, 7 * DAY, 30 * DAY];
+  else                           secs = [2 * DAY, 7 * DAY, 30 * DAY, 90 * DAY];
+  return [{ label: 'Off', sec: 0 }, ...secs.map(sec => ({ label: humanDur(sec), sec }))];
+}
+
+function humanDur(sec) {
+  if (sec % (30 * 86400) === 0 && sec >= 60 * 86400) return (sec / (30 * 86400)) + ' mo';
+  if (sec % 86400 === 0) { const d = sec / 86400; return d + ' day' + (d > 1 ? 's' : ''); }
+  if (sec % 3600  === 0) return (sec / 3600) + ' hr';
+  return (sec / 60) + ' min';
+}
+
+// Snap a previously-chosen window to the nearest option available for the new
+// span (keeping Off as Off) so switching ranges never leaves a dangling value.
+function snapWindow(win, opts) {
+  if (!win) return 0;
+  let best = win, diff = Infinity;
+  for (const o of opts) {
+    if (o.sec === 0) continue;
+    const d = Math.abs(o.sec - win);
+    if (d < diff) { diff = d; best = o.sec; }
+  }
+  return best;
+}
+
+function populateSmooth(sel, opts, value) {
+  sel.innerHTML = '';
+  for (const o of opts) {
+    const el = document.createElement('option');
+    el.value = String(o.sec);
+    el.textContent = o.label;
+    if (o.sec === value) el.selected = true;
+    sel.appendChild(el);
+  }
+}
+
+// Rebuild both smoothing dropdowns for the current span and snap the active
+// windows onto the new option set. Called whenever a range is (re)loaded.
+export function updateSmoothingOptions(since, until) {
+  const solarSel = document.getElementById('smooth-solar');
+  const loadSel  = document.getElementById('smooth-load');
+  if (!solarSel || !loadSel) return;
+  const opts = smoothingOptionsFor(Math.max(1, until - since));
+  state.smoothingSolar = snapWindow(state.smoothingSolar, opts);
+  state.smoothingLoad  = snapWindow(state.smoothingLoad, opts);
+  populateSmooth(solarSel, opts, state.smoothingSolar);
+  populateSmooth(loadSel,  opts, state.smoothingLoad);
+}
+
+// Last raw render inputs, kept so the smoothing control can re-render the
+// current chart without re-fetching.
+let _lastRender = null;
+
+export function rerenderChart() {
+  if (!_lastRender) return;
+  const { series, rangeLabel, since, until, rangeName, events } = _lastRender;
+  renderChart(series, rangeLabel, since, until, rangeName, events);
+}
+
 export function renderChart(series, rangeLabel, since, until, rangeName, events = []) {
+  _lastRender = { series, rangeLabel, since, until, rangeName, events };
   const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
@@ -238,9 +348,11 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
+  const smoothed = smoothSeries(series, state.smoothingSolar, state.smoothingLoad);
+
   if (state.chart && rangeName && rangeName === state.chartRangeName) {
-    const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
-    const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
+    const solar = smoothed.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
+    const load  = smoothed.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
     state.chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
     state.chart.xAxis[0].update({ plotBands: buildPlotBands(events, since, until) }, false);
     state.chart.series[0].setData(solar, false, { duration: 400 });
@@ -250,7 +362,7 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
 
   if (state.chart) { try { state.chart.destroy(); } catch (_) {} state.chart = null; }
   toggleCreateEventButton(false);
-  state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until, events));
+  state.chart = Highcharts.chart('chart', buildChartOptions(smoothed, rangeLabel, since, until, events));
   state.chartRangeName = rangeName || null;
 }
 
@@ -363,6 +475,8 @@ export async function fetchAndRender(since, until, label, rangeName) {
     // range reaching before data exists) this reveals when monitoring began —
     // an important clue — instead of a blank or epoch start.
     if (!state.isLive) syncPickers(chartSince, until);
+    // Offer smoothing windows appropriate to the span now on screen.
+    updateSmoothingOptions(chartSince, until);
     renderChart(data.series, label, chartSince, until, rangeName, state.maintenanceEvents);
   } catch (e) {
     document.getElementById('status').textContent = 'Error: ' + e.message;
@@ -462,14 +576,15 @@ function toDateTimeLocal(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// Reflect the currently rendered range into the From/To pickers and reveal them.
-// Called whenever a non-live range is loaded or shifted, so the pickers always
-// show the active window and can be adjusted from there.
+// Reflect the currently rendered range into the From/To pickers. Always keeps
+// the values current (so picking e.g. Past 30 Days then Custom lets you fine-
+// tune from that window), but only reveals the pickers when Custom is active —
+// otherwise the date picker is just a distraction.
 function syncPickers(sinceSec, untilSec) {
   if (!_customRow) return;
   if (_customSinceEl) _customSinceEl.value = sinceSec > 0 ? toDateTimeLocal(new Date(sinceSec * 1000)) : '';
   if (_customUntilEl) _customUntilEl.value = toDateTimeLocal(new Date(untilSec * 1000));
-  _customRow.classList.add('visible');
+  _customRow.classList.toggle('visible', state.currentRange === 'custom');
 }
 
 function hidePickers() {
@@ -536,6 +651,17 @@ export function initOverview() {
     state.currentRange = 'custom';
     rangeSelect.value = 'custom';
     loadRange('custom', since, until);
+  });
+
+  const solarSel = document.getElementById('smooth-solar');
+  const loadSel  = document.getElementById('smooth-load');
+  if (solarSel) solarSel.addEventListener('change', () => {
+    state.smoothingSolar = parseInt(solarSel.value, 10) || 0;
+    rerenderChart(); // re-render the already-fetched data, no refetch
+  });
+  if (loadSel) loadSel.addEventListener('change', () => {
+    state.smoothingLoad = parseInt(loadSel.value, 10) || 0;
+    rerenderChart();
   });
 
   _prevBtn.addEventListener('click', () => shiftRange(-1));

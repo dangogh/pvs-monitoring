@@ -12,6 +12,13 @@ export const state = {
   lastSince:       null,
   lastUntil:       null,
 
+  // Chart smoothing: independent moving-average windows (seconds; 0 = off/raw)
+  // for the production and usage lines. The available windows scale with the
+  // visible span (see smoothingOptionsFor); values snap to the nearest option
+  // when the range changes. Usage defaults smoothed, production raw.
+  smoothingSolar:  0,
+  smoothingLoad:   600,
+
   // Panels
   panelsData:      [],
   panelsFetchedAt: 0,
