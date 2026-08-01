@@ -576,14 +576,15 @@ function toDateTimeLocal(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// Reflect the currently rendered range into the From/To pickers and reveal them.
-// Called whenever a non-live range is loaded or shifted, so the pickers always
-// show the active window and can be adjusted from there.
+// Reflect the currently rendered range into the From/To pickers. Always keeps
+// the values current (so picking e.g. Past 30 Days then Custom lets you fine-
+// tune from that window), but only reveals the pickers when Custom is active —
+// otherwise the date picker is just a distraction.
 function syncPickers(sinceSec, untilSec) {
   if (!_customRow) return;
   if (_customSinceEl) _customSinceEl.value = sinceSec > 0 ? toDateTimeLocal(new Date(sinceSec * 1000)) : '';
   if (_customUntilEl) _customUntilEl.value = toDateTimeLocal(new Date(untilSec * 1000));
-  _customRow.classList.add('visible');
+  _customRow.classList.toggle('visible', state.currentRange === 'custom');
 }
 
 function hidePickers() {
