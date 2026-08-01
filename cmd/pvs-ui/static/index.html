@@ -89,6 +89,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      margin: 0;
       font-size: 0.78rem;
       text-transform: uppercase;
       letter-spacing: 0.07em;
@@ -806,11 +807,11 @@
   <!-- Overview tab -->
   <div id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="btn-overview">
 
-    <div class="section-heading">
-      <span class="pulse-dot" id="now-dot"></span>
+    <h2 class="section-heading">
+      <span class="pulse-dot" id="now-dot" aria-hidden="true"></span>
       <span>Now</span>
       <span id="now-timestamp"></span>
-    </div>
+    </h2>
     <section aria-label="Current power readings" aria-live="polite" aria-atomic="true" class="current-stats">
       <div class="stat-card production" role="group" aria-label="Solar production">
         <span class="stat-label">Production</span>
@@ -926,7 +927,7 @@
   <!-- Events tab -->
   <div id="tab-events" class="tab-panel" role="tabpanel" aria-labelledby="btn-events">
 
-    <div class="section-heading"><span>Maintenance Events</span></div>
+    <h2 class="section-heading"><span>Maintenance Events</span></h2>
 
     <div class="events-table-wrap">
       <table id="events-table" aria-label="Maintenance events">
@@ -942,7 +943,7 @@
       <p id="events-empty" class="events-empty" hidden>No events recorded yet.</p>
     </div>
 
-    <div class="section-heading" style="margin-top:1rem"><span id="event-form-heading">Record New Event</span></div>
+    <h2 class="section-heading" style="margin-top:1rem"><span id="event-form-heading">Record New Event</span></h2>
 
     <form id="event-form" class="event-form" novalidate>
       <div class="event-form-row">
@@ -972,6 +973,11 @@
 
   <!-- Map tab -->
   <div id="tab-map" class="tab-panel" role="tabpanel" aria-labelledby="btn-map">
+    <p class="sr-only">
+      This is a visual site map showing each panel's physical location and live
+      output, intended for sighted use. For the same per-panel status and
+      readings as a screen-reader-accessible table, use the Panels tab.
+    </p>
     <!-- Animation toolbar -->
     <div id="map-anim-bar">
       <div id="map-anim-controls">
@@ -990,7 +996,7 @@
       <input type="range" id="anim-scrubber" min="0" value="0" step="1">
     </div>
     <div id="map-layout">
-      <div id="map-container"></div>
+      <div id="map-container" aria-hidden="true"></div>
       <div id="map-detail" aria-live="polite">
         <div id="map-detail-title"></div>
         <div class="detail-grid" id="map-detail-grid"></div>
