@@ -391,8 +391,41 @@
 
     #panels-table thead th:hover { color: var(--text); }
 
+    /* Sort trigger: a real button so headers are keyboard-operable, styled to
+       look like the header text it replaced. */
+    #panels-table thead th .th-sort {
+      all: unset;
+      display: block;
+      width: 100%;
+      cursor: pointer;
+      text-align: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+      color: inherit;
+    }
+    #panels-table thead th .th-sort:focus-visible {
+      outline: 2px solid var(--solar);
+      outline-offset: 2px;
+    }
+
     #panels-table thead th[aria-sort="ascending"]::after  { content: ' ▲'; }
     #panels-table thead th[aria-sort="descending"]::after { content: ' ▼'; }
+
+    /* Row disclosure trigger: a real button styled as the plain label text. */
+    #panels-table .row-toggle {
+      all: unset;
+      display: block;
+      width: 100%;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+    #panels-table .row-toggle:focus-visible {
+      outline: 2px solid var(--solar);
+      outline-offset: 2px;
+    }
 
     #panels-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
     #panels-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
@@ -798,10 +831,10 @@
 <main>
 
   <div class="tab-bar" role="tablist" aria-label="Views">
-    <button class="tab-btn" role="tab" aria-selected="true"  aria-controls="tab-overview" id="btn-overview">Overview</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panels"   id="btn-panels">Panels</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-events"   id="btn-events">Events</button>
+    <button class="tab-btn" role="tab" aria-selected="true"  tabindex="0"  aria-controls="tab-overview" id="btn-overview">Overview</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-panels"   id="btn-panels">Panels</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-events"   id="btn-events">Events</button>
   </div>
 
   <!-- Overview tab -->
