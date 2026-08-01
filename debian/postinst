@@ -23,12 +23,13 @@ if [ "$1" = "configure" ]; then
     chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml 2>/dev/null || true
     chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml.example 2>/dev/null || true
 
-    # If the mDNS alias config doesn't exist, put the default (UI_ALIAS=solar) in
-    # place; otherwise keep the admin's choice and drop the packaged copy.
-    if [ ! -f /etc/pvs-monitor/ui-alias.conf ]; then
-        mv /etc/pvs-monitor/ui-alias.conf.dpkg-new /etc/pvs-monitor/ui-alias.conf
-    else
-        rm -f /etc/pvs-monitor/ui-alias.conf.dpkg-new
+    # Clean up the old package-managed mDNS alias service, which earlier
+    # versions installed. The friendly-URL alias is a site-specific concern
+    # (independent of pvs-monitoring) and is no longer shipped in the package.
+    if [ -e /etc/systemd/system/pvs-ui-alias.service ]; then
+        systemctl disable --now pvs-ui-alias 2>/dev/null || true
+        rm -f /etc/systemd/system/pvs-ui-alias.service /usr/bin/pvs-ui-alias
+        rm -f /etc/pvs-monitor/ui-alias.conf /etc/pvs-monitor/ui-alias.conf.dpkg-new
     fi
 
     # Generate self-signed TLS certificate if it doesn't exist
@@ -53,8 +54,8 @@ if [ "$1" = "configure" ]; then
     
     # Enable services (but don't start them yet — user must configure first)
     systemctl daemon-reload || true
-    systemctl enable pvs-monitor pvs-api pvs-ui pvs-ui-alias 2>/dev/null || true
-    systemctl restart pvs-monitor pvs-api pvs-ui pvs-ui-alias 2>/dev/null || true
+    systemctl enable pvs-monitor pvs-api pvs-ui 2>/dev/null || true
+    systemctl restart pvs-monitor pvs-api pvs-ui 2>/dev/null || true
 
     # Install daily auto-update cron job (runs at 3am, logs to /var/log/pvs-update.log)
     CRON_FILE="/etc/cron.d/pvs-monitoring"
