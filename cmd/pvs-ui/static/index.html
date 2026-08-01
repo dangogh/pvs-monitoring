@@ -686,6 +686,22 @@
       border: 0;
     }
 
+    /* Skip link: off-screen until focused, then revealed at top-left. */
+    .skip-link {
+      position: absolute;
+      left: 0.5rem;
+      top: -3rem;
+      z-index: 100;
+      background: var(--solar);
+      color: #000;
+      padding: 0.5rem 0.85rem;
+      border-radius: 0 0 6px 6px;
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: top 0.15s ease;
+    }
+    .skip-link:focus { top: 0; }
+
     .events-empty {
       padding: 1.25rem;
       color: var(--muted);
@@ -823,12 +839,14 @@
 </head>
 <body>
 
+<a href="#main" class="skip-link">Skip to main content</a>
+
 <header>
   <h1>☀ Solar Monitor</h1>
   <time id="clock" aria-live="off"></time>
 </header>
 
-<main>
+<main id="main">
 
   <div class="tab-bar" role="tablist" aria-label="Views">
     <button class="tab-btn" role="tab" aria-selected="true"  tabindex="0"  aria-controls="tab-overview" id="btn-overview">Overview</button>
@@ -845,7 +863,9 @@
       <span>Now</span>
       <span id="now-timestamp"></span>
     </h2>
-    <section aria-label="Current power readings" aria-live="polite" aria-atomic="true" class="current-stats">
+    <!-- Not aria-atomic: on each poll only the value(s) that actually changed
+         are announced, rather than re-reading all three cards every ~5s. -->
+    <section aria-label="Current power readings" aria-live="polite" class="current-stats">
       <div class="stat-card production" role="group" aria-label="Solar production">
         <span class="stat-label">Production</span>
         <div class="stat-row">
