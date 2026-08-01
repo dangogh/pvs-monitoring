@@ -12,6 +12,11 @@ export const state = {
   lastSince:       null,
   lastUntil:       null,
 
+  // Chart smoothing: moving-average window in seconds (0 = off/raw).
+  // Defaults to 10 min so the curve reads cleanly without the minute-to-minute
+  // spikes; the Smoothing control can set it back to Off for raw data.
+  smoothing:       600,
+
   // Panels
   panelsData:      [],
   panelsFetchedAt: 0,

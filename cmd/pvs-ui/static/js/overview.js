@@ -223,7 +223,48 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
   };
 }
 
+// Centered moving-average smoothing over a time window (seconds). Points are
+// averaged with their neighbours within ±window/2. Null points are gap
+// sentinels (see toSeriesPoints in pvs-api) and split the series into segments
+// so we never average across a data gap. Returns the series unchanged when
+// smoothing is off.
+export function smoothSeries(series, windowSec) {
+  if (!windowSec || !series || series.length === 0) return series;
+  const halfMs = (windowSec * 1000) / 2;
+  const out = new Array(series.length);
+  for (let i = 0; i < series.length; i++) {
+    const p = series[i];
+    if (p.s == null && p.l == null) { out[i] = p; continue; } // preserve gap
+    let ss = 0, sl = 0, n = 0;
+    for (let j = i; j >= 0; j--) {                 // expand left within window
+      const q = series[j];
+      if (q.s == null && q.l == null) break;
+      if (p.t - q.t > halfMs) break;
+      ss += q.s; sl += q.l; n++;
+    }
+    for (let j = i + 1; j < series.length; j++) {  // expand right within window
+      const q = series[j];
+      if (q.s == null && q.l == null) break;
+      if (q.t - p.t > halfMs) break;
+      ss += q.s; sl += q.l; n++;
+    }
+    out[i] = { t: p.t, s: ss / n, l: sl / n };
+  }
+  return out;
+}
+
+// Last raw render inputs, kept so the smoothing control can re-render the
+// current chart without re-fetching.
+let _lastRender = null;
+
+export function rerenderChart() {
+  if (!_lastRender) return;
+  const { series, rangeLabel, since, until, rangeName, events } = _lastRender;
+  renderChart(series, rangeLabel, since, until, rangeName, events);
+}
+
 export function renderChart(series, rangeLabel, since, until, rangeName, events = []) {
+  _lastRender = { series, rangeLabel, since, until, rangeName, events };
   const noData  = document.getElementById('no-data');
   const chartEl = document.getElementById('chart');
 
@@ -238,9 +279,11 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
   chartEl.style.display = 'block';
   noData.style.display  = 'none';
 
+  const smoothed = smoothSeries(series, state.smoothing);
+
   if (state.chart && rangeName && rangeName === state.chartRangeName) {
-    const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
-    const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
+    const solar = smoothed.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
+    const load  = smoothed.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
     state.chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
     state.chart.xAxis[0].update({ plotBands: buildPlotBands(events, since, until) }, false);
     state.chart.series[0].setData(solar, false, { duration: 400 });
@@ -250,7 +293,7 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
 
   if (state.chart) { try { state.chart.destroy(); } catch (_) {} state.chart = null; }
   toggleCreateEventButton(false);
-  state.chart = Highcharts.chart('chart', buildChartOptions(series, rangeLabel, since, until, events));
+  state.chart = Highcharts.chart('chart', buildChartOptions(smoothed, rangeLabel, since, until, events));
   state.chartRangeName = rangeName || null;
 }
 
@@ -537,6 +580,15 @@ export function initOverview() {
     rangeSelect.value = 'custom';
     loadRange('custom', since, until);
   });
+
+  const smoothSelect = document.getElementById('smooth-select');
+  if (smoothSelect) {
+    smoothSelect.addEventListener('change', () => {
+      state.smoothing = parseInt(smoothSelect.value, 10) || 0;
+      // Re-render the already-fetched data with the new smoothing window.
+      rerenderChart();
+    });
+  }
 
   _prevBtn.addEventListener('click', () => shiftRange(-1));
   _nextBtn.addEventListener('click', () => shiftRange(+1));
