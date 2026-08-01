@@ -1014,19 +1014,20 @@
     <!-- Animation toolbar -->
     <div id="map-anim-bar">
       <div id="map-anim-controls">
-        <button id="anim-btn-play" title="Play/Pause">&#9654;</button>
-        <button id="anim-btn-step-back" title="Step back">&#9664;</button>
-        <button id="anim-btn-step-fwd" title="Step forward">&#9654;&#9654;</button>
-        <span id="anim-timestamp" class="anim-ts">—</span>
+        <button id="anim-btn-play" title="Play/Pause" aria-label="Play"><span aria-hidden="true">&#9654;</span></button>
+        <button id="anim-btn-step-back" title="Step back" aria-label="Step back"><span aria-hidden="true">&#9664;</span></button>
+        <button id="anim-btn-step-fwd" title="Step forward" aria-label="Step forward"><span aria-hidden="true">&#9654;&#9654;</span></button>
+        <span id="anim-timestamp" class="anim-ts" aria-live="polite">—</span>
       </div>
       <div id="map-anim-range">
         <label>From <input type="datetime-local" id="anim-since"></label>
-        <button id="anim-half" title="Halve time window">½</button>
-        <button id="anim-double" title="Double time window">2×</button>
+        <button id="anim-half" title="Halve time window" aria-label="Halve time window"><span aria-hidden="true">½</span></button>
+        <button id="anim-double" title="Double time window" aria-label="Double time window"><span aria-hidden="true">2×</span></button>
         <label>To <input type="datetime-local" id="anim-until"></label>
         <button id="anim-load" class="btn-primary">Load</button>
       </div>
-      <input type="range" id="anim-scrubber" min="0" value="0" step="1">
+      <input type="range" id="anim-scrubber" min="0" value="0" step="1"
+             aria-label="Timeline position" aria-valuetext="No data loaded">
     </div>
     <div id="map-layout">
       <div id="map-container" aria-hidden="true"></div>

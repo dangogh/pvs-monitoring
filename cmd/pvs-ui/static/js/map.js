@@ -191,11 +191,17 @@ function renderFrame(idx) {
       : `${label}: no data`;
   });
 
+  const label = new Date(frame.timeMS).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
   const scrubber = document.getElementById('anim-scrubber');
-  if (scrubber) scrubber.value = idx;
+  if (scrubber) {
+    scrubber.value = idx;
+    // Announce the frame's time, not the bare index, to screen readers.
+    scrubber.setAttribute('aria-valuetext', label);
+  }
 
   const ts = document.getElementById('anim-timestamp');
-  if (ts) ts.textContent = new Date(frame.timeMS).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  if (ts) ts.textContent = label;
 }
 
 function animStep(dir = 1) {
@@ -207,7 +213,9 @@ function animStep(dir = 1) {
 function animPlay() {
   if (!anim.frames.length) return;
   anim.playing = true;
-  document.getElementById('anim-btn-play').textContent = '⏸';
+  const btn = document.getElementById('anim-btn-play');
+  btn.innerHTML = '<span aria-hidden="true">&#9208;</span>';
+  btn.setAttribute('aria-label', 'Pause');
   anim.timer = setInterval(() => animStep(1), 300);
 }
 
@@ -216,7 +224,10 @@ function animPause() {
   clearInterval(anim.timer);
   anim.timer = null;
   const btn = document.getElementById('anim-btn-play');
-  if (btn) btn.innerHTML = '&#9654;';
+  if (btn) {
+    btn.innerHTML = '<span aria-hidden="true">&#9654;</span>';
+    btn.setAttribute('aria-label', 'Play');
+  }
 }
 
 function animToggle() {
