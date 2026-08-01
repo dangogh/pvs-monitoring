@@ -8,11 +8,16 @@ import { initMap, loadMap, initMapAnimation, syncMapRange } from './map.js';
 import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
 
 // ── Tabs ──────────────────────────────────────────────────────
-function switchTab(id) {
+function switchTab(id, focusTab = false) {
   const prev = state.activeTab;
   state.activeTab = id;
   document.querySelectorAll('.tab-btn').forEach(b => {
-    b.setAttribute('aria-selected', b.getAttribute('aria-controls') === id);
+    const selected = b.getAttribute('aria-controls') === id;
+    b.setAttribute('aria-selected', selected);
+    // Roving tabindex: only the selected tab is in the tab order; arrow keys
+    // move between the others (ARIA tabs pattern).
+    b.tabIndex = selected ? 0 : -1;
+    if (selected && focusTab) b.focus();
   });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === id));
   if (id === 'tab-panels') loadPanels();
@@ -23,9 +28,28 @@ function switchTab(id) {
   }
 }
 
-document.querySelectorAll('.tab-btn').forEach(btn =>
-  btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls')))
-);
+// Only tabs whose button is actually shown are navigable (the Map tab is hidden
+// until a site map is configured).
+function visibleTabs() {
+  return [...document.querySelectorAll('.tab-btn')].filter(b => b.offsetParent !== null);
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.getAttribute('aria-controls')));
+  btn.addEventListener('keydown', e => {
+    const tabs = visibleTabs();
+    const i = tabs.indexOf(btn);
+    if (i === -1) return;
+    let j = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = tabs.length - 1;
+    if (j === null) return;
+    e.preventDefault();
+    switchTab(tabs[j].getAttribute('aria-controls'), true);
+  });
+});
 
 // Fetch the app version from pvs-api and show it in the footer.
 async function loadVersion() {

@@ -209,11 +209,15 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
     accessibility: {
       enabled: true,
       description: 'Solar production and home energy usage over time for ' + rangeLabel + '.',
-      point: { valueDescriptionFormat: '{xDescription}: production {point.y:.2f} kW' },
+      // Name the series in each point description so Usage points aren't
+      // announced as "production" (they share one format string).
+      point: { valueDescriptionFormat: '{xDescription}: {series.name} {point.y:.2f} kW' },
       series: { descriptionFormat: '{seriesDescription}' },
       screenReaderSection: {
+        // rangeLabel isn't in Highcharts' format context, so interpolate it
+        // into the string here rather than leaving a literal {rangeLabel} token.
         beforeChartFormat:
-          '<h3>Solar production and usage — {rangeLabel}</h3>' +
+          '<h3>Solar production and usage — ' + rangeLabel + '</h3>' +
           '<div>Line chart with two series: solar production in amber, home usage in blue.</div>' +
           '<div>{chartLongdesc}</div>',
       },

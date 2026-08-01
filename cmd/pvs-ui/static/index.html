@@ -89,6 +89,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      margin: 0;
       font-size: 0.78rem;
       text-transform: uppercase;
       letter-spacing: 0.07em;
@@ -390,8 +391,41 @@
 
     #panels-table thead th:hover { color: var(--text); }
 
+    /* Sort trigger: a real button so headers are keyboard-operable, styled to
+       look like the header text it replaced. */
+    #panels-table thead th .th-sort {
+      all: unset;
+      display: block;
+      width: 100%;
+      cursor: pointer;
+      text-align: inherit;
+      font: inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+      color: inherit;
+    }
+    #panels-table thead th .th-sort:focus-visible {
+      outline: 2px solid var(--solar);
+      outline-offset: 2px;
+    }
+
     #panels-table thead th[aria-sort="ascending"]::after  { content: ' ▲'; }
     #panels-table thead th[aria-sort="descending"]::after { content: ' ▼'; }
+
+    /* Row disclosure trigger: a real button styled as the plain label text. */
+    #panels-table .row-toggle {
+      all: unset;
+      display: block;
+      width: 100%;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+    #panels-table .row-toggle:focus-visible {
+      outline: 2px solid var(--solar);
+      outline-offset: 2px;
+    }
 
     #panels-table tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
     #panels-table tbody tr:hover           { background: rgba(255,255,255,0.05); }
@@ -652,6 +686,22 @@
       border: 0;
     }
 
+    /* Skip link: off-screen until focused, then revealed at top-left. */
+    .skip-link {
+      position: absolute;
+      left: 0.5rem;
+      top: -3rem;
+      z-index: 100;
+      background: var(--solar);
+      color: #000;
+      padding: 0.5rem 0.85rem;
+      border-radius: 0 0 6px 6px;
+      font-size: 0.9rem;
+      text-decoration: none;
+      transition: top 0.15s ease;
+    }
+    .skip-link:focus { top: 0; }
+
     .events-empty {
       padding: 1.25rem;
       color: var(--muted);
@@ -700,7 +750,6 @@
       text-align: center;
       color: var(--muted);
       font-size: 0.75rem;
-      opacity: 0.7;
     }
 
     .event-form {
@@ -789,29 +838,33 @@
 </head>
 <body>
 
+<a href="#main" class="skip-link">Skip to main content</a>
+
 <header>
   <h1>☀ Solar Monitor</h1>
   <time id="clock" aria-live="off"></time>
 </header>
 
-<main>
+<main id="main">
 
   <div class="tab-bar" role="tablist" aria-label="Views">
-    <button class="tab-btn" role="tab" aria-selected="true"  aria-controls="tab-overview" id="btn-overview">Overview</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-panels"   id="btn-panels">Panels</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
-    <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-events"   id="btn-events">Events</button>
+    <button class="tab-btn" role="tab" aria-selected="true"  tabindex="0"  aria-controls="tab-overview" id="btn-overview">Overview</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-panels"   id="btn-panels">Panels</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-events"   id="btn-events">Events</button>
   </div>
 
   <!-- Overview tab -->
   <div id="tab-overview" class="tab-panel active" role="tabpanel" aria-labelledby="btn-overview">
 
-    <div class="section-heading">
-      <span class="pulse-dot" id="now-dot"></span>
+    <h2 class="section-heading">
+      <span class="pulse-dot" id="now-dot" aria-hidden="true"></span>
       <span>Now</span>
       <span id="now-timestamp"></span>
-    </div>
-    <section aria-label="Current power readings" aria-live="polite" aria-atomic="true" class="current-stats">
+    </h2>
+    <!-- Not aria-atomic: on each poll only the value(s) that actually changed
+         are announced, rather than re-reading all three cards every ~5s. -->
+    <section aria-label="Current power readings" aria-live="polite" class="current-stats">
       <div class="stat-card production" role="group" aria-label="Solar production">
         <span class="stat-label">Production</span>
         <div class="stat-row">
@@ -926,7 +979,7 @@
   <!-- Events tab -->
   <div id="tab-events" class="tab-panel" role="tabpanel" aria-labelledby="btn-events">
 
-    <div class="section-heading"><span>Maintenance Events</span></div>
+    <h2 class="section-heading"><span>Maintenance Events</span></h2>
 
     <div class="events-table-wrap">
       <table id="events-table" aria-label="Maintenance events">
@@ -942,7 +995,7 @@
       <p id="events-empty" class="events-empty" hidden>No events recorded yet.</p>
     </div>
 
-    <div class="section-heading" style="margin-top:1rem"><span id="event-form-heading">Record New Event</span></div>
+    <h2 class="section-heading" style="margin-top:1rem"><span id="event-form-heading">Record New Event</span></h2>
 
     <form id="event-form" class="event-form" novalidate>
       <div class="event-form-row">
@@ -972,25 +1025,31 @@
 
   <!-- Map tab -->
   <div id="tab-map" class="tab-panel" role="tabpanel" aria-labelledby="btn-map">
+    <p class="sr-only">
+      This is a visual site map showing each panel's physical location and live
+      output, intended for sighted use. For the same per-panel status and
+      readings as a screen-reader-accessible table, use the Panels tab.
+    </p>
     <!-- Animation toolbar -->
     <div id="map-anim-bar">
       <div id="map-anim-controls">
-        <button id="anim-btn-play" title="Play/Pause">&#9654;</button>
-        <button id="anim-btn-step-back" title="Step back">&#9664;</button>
-        <button id="anim-btn-step-fwd" title="Step forward">&#9654;&#9654;</button>
-        <span id="anim-timestamp" class="anim-ts">—</span>
+        <button id="anim-btn-play" title="Play/Pause" aria-label="Play"><span aria-hidden="true">&#9654;</span></button>
+        <button id="anim-btn-step-back" title="Step back" aria-label="Step back"><span aria-hidden="true">&#9664;</span></button>
+        <button id="anim-btn-step-fwd" title="Step forward" aria-label="Step forward"><span aria-hidden="true">&#9654;&#9654;</span></button>
+        <span id="anim-timestamp" class="anim-ts" aria-live="polite">—</span>
       </div>
       <div id="map-anim-range">
         <label>From <input type="datetime-local" id="anim-since"></label>
-        <button id="anim-half" title="Halve time window">½</button>
-        <button id="anim-double" title="Double time window">2×</button>
+        <button id="anim-half" title="Halve time window" aria-label="Halve time window"><span aria-hidden="true">½</span></button>
+        <button id="anim-double" title="Double time window" aria-label="Double time window"><span aria-hidden="true">2×</span></button>
         <label>To <input type="datetime-local" id="anim-until"></label>
         <button id="anim-load" class="btn-primary">Load</button>
       </div>
-      <input type="range" id="anim-scrubber" min="0" value="0" step="1">
+      <input type="range" id="anim-scrubber" min="0" value="0" step="1"
+             aria-label="Timeline position" aria-valuetext="No data loaded">
     </div>
     <div id="map-layout">
-      <div id="map-container"></div>
+      <div id="map-container" aria-hidden="true"></div>
       <div id="map-detail" aria-live="polite">
         <div id="map-detail-title"></div>
         <div class="detail-grid" id="map-detail-grid"></div>

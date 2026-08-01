@@ -62,8 +62,8 @@ export function renderPanels() {
                      : 'state-other';
     const expanded = state.expandedSerials.has(d.serial);
     const label = state.serialToLabel[d.serial] || '—';
-    rows.push(`<tr class="panel-row${expanded ? ' expanded' : ''}" data-serial="${d.serial}" tabindex="0" aria-expanded="${expanded}">
-      <td>${label}</td>
+    rows.push(`<tr class="panel-row${expanded ? ' expanded' : ''}" data-serial="${d.serial}">
+      <td><button type="button" class="row-toggle" aria-expanded="${expanded}" aria-controls="detail-${d.serial}">${label}</button></td>
       <td class="${stateClass}" style="max-width:6rem;overflow:hidden;text-overflow:ellipsis">${d.state_descr}</td>
       <td>${d.serial}</td>
       <td>${fmt1(d.power_kw)}</td>
@@ -95,9 +95,12 @@ export function renderPanels() {
   }
 
   tbody.querySelectorAll('tr.panel-row').forEach(tr => {
+    // Row click toggles for mouse users; the disclosure button in the first cell
+    // is the keyboard/screen-reader control (native Enter/Space).
     tr.addEventListener('click', () => togglePanel(tr.dataset.serial));
-    tr.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePanel(tr.dataset.serial); }
+    tr.querySelector('.row-toggle').addEventListener('click', e => {
+      e.stopPropagation(); // don't double-toggle via the row handler above
+      togglePanel(tr.dataset.serial);
     });
   });
 }
@@ -116,7 +119,7 @@ export function detailRow(d) {
     { label: 'Temperature',   value: fmt1(d.temp_c),          unit: '°C'  },
     { label: 'Lifetime',      value: fmt1(d.lifetime_kwh),    unit: 'kWh' },
   ];
-  return `<tr class="detail-row"><td colspan="8"><div class="detail-grid">${
+  return `<tr class="detail-row" id="detail-${d.serial}"><td colspan="8"><div class="detail-grid">${
     fields.map(f => `<div class="detail-item">
       <span class="detail-label">${f.label}</span>
       <span class="detail-value">${f.value}${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}</span>
@@ -131,11 +134,25 @@ export function togglePanel(serial) {
     state.expandedSerials.add(serial);
   }
   renderPanels();
+  // Re-render replaces the row, so restore focus to this panel's toggle button
+  // to keep keyboard/screen-reader users in place after expand/collapse.
+  const btn = document.querySelector(`tr.panel-row[data-serial="${serial}"] .row-toggle`);
+  if (btn) btn.focus();
 }
 
 export function initPanels() {
-  document.querySelectorAll('#panels-table thead th').forEach(th => {
-    th.addEventListener('click', () => {
+  document.querySelectorAll('#panels-table thead th[data-col]').forEach(th => {
+    // Wrap the header label in a real button so sorting works with the keyboard
+    // (Enter/Space) and screen readers, while the th keeps its columnheader role
+    // and aria-sort state.
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'th-sort';
+    btn.textContent = th.textContent;
+    th.textContent = '';
+    th.appendChild(btn);
+
+    btn.addEventListener('click', () => {
       const col = th.dataset.col;
       if (state.sortCol === col) {
         state.sortAsc = !state.sortAsc;
