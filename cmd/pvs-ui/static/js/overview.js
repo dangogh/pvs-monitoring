@@ -270,14 +270,16 @@ export function smoothSeries(series, solarWin, loadWin) {
 export function smoothingOptionsFor(spanSec) {
   const HOUR = 3600, DAY = 86400;
   let secs;
-  if      (spanSec <= 2 * DAY)  secs = [600, 1800, 3600, 7200];
-  else if (spanSec <= 7 * DAY)  secs = [2 * HOUR, 6 * HOUR, 12 * HOUR];
-  else if (spanSec <= 90 * DAY) secs = [12 * HOUR, 2 * DAY, 7 * DAY];
-  else                          secs = [2 * DAY, 7 * DAY, 30 * DAY];
+  if      (spanSec <= 2 * DAY)   secs = [600, 1800, 3600, 7200];
+  else if (spanSec <= 7 * DAY)   secs = [2 * HOUR, 6 * HOUR, 12 * HOUR];
+  else if (spanSec <= 90 * DAY)  secs = [12 * HOUR, 2 * DAY, 7 * DAY];
+  else if (spanSec <  365 * DAY) secs = [2 * DAY, 7 * DAY, 30 * DAY];
+  else                           secs = [2 * DAY, 7 * DAY, 30 * DAY, 90 * DAY];
   return [{ label: 'Off', sec: 0 }, ...secs.map(sec => ({ label: humanDur(sec), sec }))];
 }
 
 function humanDur(sec) {
+  if (sec % (30 * 86400) === 0 && sec >= 60 * 86400) return (sec / (30 * 86400)) + ' mo';
   if (sec % 86400 === 0) { const d = sec / 86400; return d + ' day' + (d > 1 ? 's' : ''); }
   if (sec % 3600  === 0) return (sec / 3600) + ' hr';
   return (sec / 60) + ' min';
