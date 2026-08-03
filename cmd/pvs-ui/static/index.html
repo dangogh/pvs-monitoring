@@ -491,6 +491,28 @@
       margin-left: 0.2em;
     }
 
+    /* ── Admin tab ───────────────────────────────────────────── */
+    .admin-intro { color: var(--muted); font-size: 0.9rem; margin: 0 0 0.5rem; }
+    .admin-group { margin-bottom: 1.5rem; }
+    .admin-group-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--solar);
+      margin: 0 0 0.6rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
+    #admin-container .detail-value {
+      font-size: 0.95rem;
+      word-break: break-word;
+    }
+    .detail-value--empty { color: var(--muted); font-style: italic; font-weight: 400; }
+    .status-value--live    { color: var(--export); }
+    .status-value--stale   { color: var(--import); }
+    .status-value--unknown { color: var(--muted); }
+    .admin-error { color: var(--import); }
+
     /* ── Map tab ─────────────────────────────────────────────── */
     #map-container { background: var(--bg); border-radius: var(--radius); padding: 1rem; }
     #map-container h1     { color: var(--text); }
@@ -852,6 +874,7 @@
     <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-panels"   id="btn-panels">Panels</button>
     <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-map"      id="btn-map" style="display:none">Map</button>
     <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-events"   id="btn-events">Events</button>
+    <button class="tab-btn" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-admin"    id="btn-admin">Admin</button>
   </div>
 
   <!-- Overview tab -->
@@ -975,6 +998,14 @@
       </table>
     </div>
   </div><!-- /tab-panels -->
+
+  <div id="tab-admin" class="tab-panel" role="tabpanel" aria-labelledby="btn-admin">
+    <p class="admin-intro">
+      Effective configuration loaded by the daemon at startup. Read-only for now —
+      editing is not yet available.
+    </p>
+    <div id="admin-container" aria-live="polite"></div>
+  </div><!-- /tab-admin -->
 
   <!-- Events tab -->
   <div id="tab-events" class="tab-panel" role="tabpanel" aria-labelledby="btn-events">

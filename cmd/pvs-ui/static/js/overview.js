@@ -16,6 +16,7 @@ function toggleCreateEventButton(show) {
 // ── Current reading ───────────────────────────────────────────
 export function updateCurrent(c) {
   if (!c) return;
+  state.current = c;   // latest reading, shared for the Admin freshness ticker
   const solarEl   = document.getElementById('solar-kw');
   const loadEl    = document.getElementById('load-kw');
   const prodCard  = document.querySelector('.stat-card.production');

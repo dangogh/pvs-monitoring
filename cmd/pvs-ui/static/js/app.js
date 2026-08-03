@@ -6,6 +6,7 @@ import { loadRange, refreshCurrent, initOverview, fetchAndRender } from './overv
 import { loadPanels, fetchDevices, initPanels } from './panels.js';
 import { initMap, loadMap, initMapAnimation, syncMapRange } from './map.js';
 import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
+import { loadAdmin } from './admin.js';
 
 // ── Tabs ──────────────────────────────────────────────────────
 function switchTab(id, focusTab = false) {
@@ -23,6 +24,7 @@ function switchTab(id, focusTab = false) {
   if (id === 'tab-panels') loadPanels();
   if (id === 'tab-map')    { syncMapRange(); loadMap(); }
   if (id === 'tab-events') loadEvents();
+  if (id === 'tab-admin')  loadAdmin();
   if (id === 'tab-overview' && prev === 'tab-map' && state.lastSince) {
     fetchAndRender(state.lastSince, state.lastUntil, null, 'custom');
   }
@@ -92,6 +94,8 @@ async function loadVersion() {
     } else if (state.activeTab === 'tab-map') {
       state.panelsFetchedAt = 0;
       loadMap();
+    } else if (state.activeTab === 'tab-admin') {
+      loadAdmin();
     }
   }, DEVICES_REFRESH_MS);
 })();
