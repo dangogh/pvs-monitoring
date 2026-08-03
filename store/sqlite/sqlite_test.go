@@ -788,12 +788,48 @@ func TestOpenReadOnlyCannotWrite(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOpenReadWriteCanWriteWithoutMigrating(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "rw.db")
+
+	// pvs-monitor creates and migrates; then close so the writer isn't holding it.
+	w, err := Open(path)
+	require.NoError(t, err)
+	var migrated int
+	require.NoError(t, w.db.QueryRow(`PRAGMA user_version`).Scan(&migrated))
+	require.NoError(t, w.Close())
+
+	rw, err := OpenReadWrite(path)
+	require.NoError(t, err)
+	defer func() { _ = rw.Close() }()
+
+	// pvs-api's use case: persist a user-generated row through the rw connection.
+	id, err := rw.SaveMaintenanceEvent(ctx, pvs.MaintenanceEvent{
+		StartAt: time.Now(), EventType: "ev_charging",
+	})
+	require.NoError(t, err)
+	assert.NotZero(t, id)
+
+	// It must not have migrated — schema version is still whatever pvs-monitor set.
+	var version int
+	require.NoError(t, rw.db.QueryRow(`PRAGMA user_version`).Scan(&version))
+	assert.Equal(t, migrated, version)
+}
+
+func TestOpenReadWriteMissingDBFails(t *testing.T) {
+	// mode=rw must fail on a non-existent DB rather than create it — pvs-monitor
+	// alone brings the database into existence.
+	path := filepath.Join(t.TempDir(), "never.db")
+	_, _, err := tryOpen(path, "rw")
+	require.Error(t, err, "opening a non-existent DB read-write should error, not create it")
+}
+
 func TestOpenReadOnlyMissingDBFails(t *testing.T) {
 	// A single read-only attempt against a non-existent DB must error (rather
 	// than create the file); this is the per-attempt failure OpenReadOnly polls
 	// on until pvs-monitor creates the DB, then reports after its deadline.
 	path := filepath.Join(t.TempDir(), "never.db")
-	_, _, err := tryOpenReadOnly(path)
+	_, _, err := tryOpen(path, "ro")
 	require.Error(t, err, "opening a non-existent DB read-only should error")
 }
 
