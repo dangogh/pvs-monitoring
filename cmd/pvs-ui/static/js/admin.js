@@ -45,11 +45,16 @@ export async function loadAdmin() {
   container.removeAttribute('aria-busy');
 
   if (!cfg && !current && !version && !devices) {
+    stopFreshnessTicker();
     container.innerHTML =
       '<p class="admin-error" role="alert">Could not reach pvs-api.</p>';
     return;
   }
-  container.innerHTML = renderStatus(current, version, devices, cfg) + renderConfig(cfg);
+  // Seed the shared reading so the Monitor line paints immediately, even before
+  // the app-wide 5s poll (refreshCurrent) has run once.
+  if (current) state.current = current;
+  container.innerHTML = renderStatus(version, devices) + renderConfig(cfg);
+  startFreshnessTicker();
 }
 
 async function getJSON(url) {
@@ -62,21 +67,16 @@ async function getJSON(url) {
   }
 }
 
-function renderStatus(current, version, devices, cfg) {
+function renderStatus(version, devices) {
   const items = [];
 
-  // Data freshness: compare the last reading's age against the configured
-  // stale threshold (both already on hand — no server-side staleness needed).
-  if (current && current.updated_at) {
-    const ageMs = Date.now() - new Date(current.updated_at).getTime();
-    const staleMs = parseGoDuration(cfg && cfg.stale_threshold) ?? 0;
-    const stale = staleMs > 0 && ageMs > staleMs;
-    items.push(statusItem('Monitor',
-      `${stale ? 'Stale' : 'Live'} · ${humanAge(ageMs)}`,
-      stale ? 'stale' : 'live'));
-  } else {
-    items.push(statusItem('Monitor', 'No data', 'unknown'));
-  }
+  // Monitor freshness gets a stable id so the 1s ticker can refresh just this
+  // value in place (see startFreshnessTicker) without re-fetching or re-rendering.
+  const mon = monitorStatus(state.current);
+  items.push(`<div class="detail-item">
+    <span class="detail-label">Monitor</span>
+    <span id="admin-monitor" class="detail-value status-value--${mon.tone}">${escapeHTML(mon.text)}</span>
+  </div>`);
 
   if (version && version.version) {
     items.push(statusItem('Version', version.version, ''));
@@ -105,6 +105,44 @@ function statusItem(label, value, tone) {
   </div>`;
 }
 
+// monitorStatus derives the Monitor freshness badge from the latest reading.
+// While data is flowing it reads a calm, static "Live" — no ticking seconds,
+// which would only sawtooth 0→5s against the reading poll cadence without saying
+// anything useful. The age appears only once the feed goes stale (>2 min), where
+// "how long since the last reading" is the thing you actually want to know. The
+// daemon's stale_threshold (seconds) governs MCP-tool semantics, not this badge.
+const STALE_AFTER_S = 120;
+
+function monitorStatus(reading) {
+  if (!reading || !reading.updated_at) return { text: 'No data', tone: 'unknown' };
+  const age = Math.round((Date.now() - new Date(reading.updated_at).getTime()) / 1000);
+  if (age > STALE_AFTER_S) return { text: `Stale · ${ageLabel(age)}`, tone: 'stale' };
+  return { text: 'Live', tone: 'live' };
+}
+
+// The freshness ticker recomputes the Monitor age once a second from the shared
+// reading (refreshed every 5s by the app-wide poll), so "Xs ago" counts honestly
+// instead of freezing between the 30s Admin reloads. It self-stops when the Admin
+// tab is no longer showing, so at most one interval is ever live.
+let freshTimer = null;
+
+function startFreshnessTicker() {
+  stopFreshnessTicker();
+  freshTimer = setInterval(tickFreshness, 1000);
+}
+
+function stopFreshnessTicker() {
+  if (freshTimer) { clearInterval(freshTimer); freshTimer = null; }
+}
+
+function tickFreshness() {
+  const el = document.getElementById('admin-monitor');
+  if (!el || state.activeTab !== 'tab-admin') { stopFreshnessTicker(); return; }
+  const mon = monitorStatus(state.current);
+  el.textContent = mon.text;
+  el.className = 'detail-value status-value--' + mon.tone;
+}
+
 function renderConfig(cfg) {
   if (!cfg) {
     return '<p class="admin-error" role="alert">Could not load configuration.</p>';
@@ -126,28 +164,12 @@ function renderConfig(cfg) {
   }).join('');
 }
 
-// parseGoDuration converts a Go duration string ("5s", "1m0s", "1h30m") to
-// milliseconds, or null if it can't be parsed.
-function parseGoDuration(s) {
-  if (!s) return null;
-  const units = { h: 3600000, m: 60000, s: 1000, ms: 1, us: 0.001, 'µs': 0.001, ns: 0.000001 };
-  let ms = 0, matched = false;
-  for (const m of s.matchAll(/([0-9.]+)(ms|us|µs|ns|h|m|s)/g)) {
-    const mult = units[m[2]];
-    if (mult === undefined) return null;
-    ms += parseFloat(m[1]) * mult;
-    matched = true;
-  }
-  return matched ? ms : null;
-}
-
-function humanAge(ms) {
-  const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m ago`;
+// ageLabel formats a stale reading's age (seconds); only reached once the feed
+// has been quiet for over STALE_AFTER_S, so minute granularity is the floor.
+function ageLabel(s) {
+  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
 }
 
 function escapeHTML(s) {

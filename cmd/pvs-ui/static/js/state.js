@@ -7,6 +7,7 @@ export const state = {
   chart:           null,
   chartRangeName:  null,
   isLive:          true,
+  current:         null,   // latest /api/current reading (refreshed every 5s)
   currentRange:    'today',
   activeTab:       'tab-overview',
   lastSince:       null,
