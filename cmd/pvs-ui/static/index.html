@@ -329,6 +329,33 @@
     .summary-unit  { font-size: 0.85rem; color: var(--muted); }
 
     /* ── Panels table ────────────────────────────────────────── */
+    .panels-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    #panels-pause-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0.4rem 0.75rem;
+    }
+
+    #panels-pause-btn:focus-visible { outline: 2px solid var(--solar); outline-offset: 2px; }
+
+    #panels-pause-btn[aria-pressed="true"] {
+      background: rgba(245,158,11,0.15);
+      border-color: var(--solar);
+      color: var(--solar);
+      font-weight: 600;
+    }
+
+    #panels-pause-status { font-size: 0.85rem; color: var(--muted); }
+
     #panels-container {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -979,6 +1006,10 @@
 
   <!-- Panels tab -->
   <div id="tab-panels" class="tab-panel" role="tabpanel" aria-labelledby="btn-panels">
+    <div class="panels-toolbar">
+      <button id="panels-pause-btn" type="button" aria-pressed="false">Pause</button>
+      <span id="panels-pause-status" aria-live="polite"></span>
+    </div>
     <div id="panels-container">
       <table id="panels-table" role="table" aria-label="Panel inverter readings">
         <thead>

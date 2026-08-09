@@ -3,7 +3,7 @@
 import { state, DEVICES_REFRESH_MS } from './state.js';
 import { initClock } from './display.js';
 import { loadRange, refreshCurrent, initOverview, fetchAndRender } from './overview.js';
-import { loadPanels, fetchDevices, initPanels } from './panels.js';
+import { loadPanels, fetchDevices, initPanels, panelsBusy } from './panels.js';
 import { initMap, loadMap, initMapAnimation, syncMapRange } from './map.js';
 import { fetchMaintenanceEvents, initEvents, loadEvents } from './events.js';
 import { loadAdmin } from './admin.js';
@@ -89,8 +89,10 @@ async function loadVersion() {
     if (state.activeTab === 'tab-overview') {
       if (state.isLive) loadRange('today');
     } else if (state.activeTab === 'tab-panels') {
-      state.panelsFetchedAt = 0;
-      loadPanels();
+      if (!state.panelsPaused && !panelsBusy()) {
+        state.panelsFetchedAt = 0;
+        loadPanels();
+      }
     } else if (state.activeTab === 'tab-map') {
       state.panelsFetchedAt = 0;
       loadMap();

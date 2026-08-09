@@ -13,7 +13,8 @@ export async function fetchDevices() {
 export async function loadPanels() {
   const stale = state.panelsData.length === 0 || Date.now() - state.panelsFetchedAt > PANELS_TTL_MS;
   if (state.panelsData.length > 0) renderPanels();
-  if (!stale) return;
+  // While paused, keep showing what we have; only fetch if there's nothing yet.
+  if (!stale || (state.panelsPaused && state.panelsData.length > 0)) return;
 
   const container = document.getElementById('panels-container');
   let overlay;
@@ -140,7 +141,34 @@ export function togglePanel(serial) {
   if (btn) btn.focus();
 }
 
+// True while the user is interacting with the table (sort headers, row
+// toggles). Auto-refresh skips its re-render then, so the DOM isn't replaced
+// out from under keyboard and screen-reader users mid-read.
+export function panelsBusy() {
+  return document.getElementById('panels-container').contains(document.activeElement);
+}
+
 export function initPanels() {
+  const pauseBtn = document.getElementById('panels-pause-btn');
+  const pauseStatus = document.getElementById('panels-pause-status');
+  pauseBtn.addEventListener('click', () => {
+    state.panelsPaused = !state.panelsPaused;
+    pauseBtn.setAttribute('aria-pressed', String(state.panelsPaused));
+    pauseBtn.textContent = state.panelsPaused ? 'Paused' : 'Pause';
+    pauseStatus.textContent = state.panelsPaused ? 'Updates paused' : 'Updates resumed';
+    if (!state.panelsPaused) {
+      state.panelsFetchedAt = 0;
+      loadPanels();
+    }
+  });
+
+  // When focus leaves the table, catch up on any refresh that was held back.
+  document.getElementById('panels-container').addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (!panelsBusy() && !state.panelsPaused && state.activeTab === 'tab-panels') loadPanels();
+    }, 0);
+  });
+
   document.querySelectorAll('#panels-table thead th[data-col]').forEach(th => {
     // Wrap the header label in a real button so sorting works with the keyboard
     // (Enter/Space) and screen readers, while the th keeps its columnheader role
