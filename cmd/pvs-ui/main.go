@@ -76,6 +76,11 @@ func run(args []string, ctx context.Context) error {
 		b, _ := iofs.ReadFile(staticFS, "index.html")
 		_, _ = w.Write(b)
 	})
+	mux.HandleFunc("GET /favicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		b, _ := iofs.ReadFile(staticFS, "favicon.svg")
+		_, _ = w.Write(b)
+	})
 	mux.Handle("/js/", http.FileServer(http.FS(staticFS)))
 	mux.Handle("/api/", proxy)
 	if assetsDir != "" {
