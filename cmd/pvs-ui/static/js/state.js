@@ -23,6 +23,7 @@ export const state = {
   // Panels
   panelsData:      [],
   panelsFetchedAt: 0,
+  panelsPaused:    false,
   sortCol:         'label',
   sortAsc:         true,
   expandedSerials: new Set(),
