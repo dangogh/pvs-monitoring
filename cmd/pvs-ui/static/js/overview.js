@@ -123,9 +123,17 @@ export function buildPlotBands(events, since, until) {
 }
 
 // ── Chart ─────────────────────────────────────────────────────
+// Grid exchange (net) at each point: load − solar. Positive = importing from
+// the grid, negative = exporting. Same sign convention as net_kwh in the
+// summary cards. Null when either input is a gap sentinel.
+function gridPoint(p) {
+  return (p.s == null || p.l == null) ? null : parseFloat((p.l - p.s).toFixed(3));
+}
+
 export function buildChartOptions(series, rangeLabel, since, until, events = []) {
   const solar = series.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
   const load  = series.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
+  const grid  = series.map(p => [p.t, gridPoint(p)]);
 
   return {
     time: { useUTC: false },
@@ -176,7 +184,9 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
       title: { text: 'kW', style: { color: '#94a3b8' } },
       gridLineColor: '#334155',
       labels: { style: { color: '#94a3b8' }, format: '{value:.1f}' },
-      min: 0,
+      // No fixed min: the Grid series dips below zero when exporting. A zero
+      // reference line separates importing (above) from exporting (below).
+      plotLines: [{ value: 0, color: '#475569', width: 1, zIndex: 2 }],
     },
     tooltip: {
       shared: true,
@@ -206,10 +216,22 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
         color: '#60a5fa',
         lineWidth: 2,
       },
+      {
+        // Signed grid exchange: importing above zero (red), exporting below
+        // (green). negativeColor paints the sub-threshold portion green.
+        name: 'Grid',
+        type: 'area',
+        data: grid,
+        threshold: 0,
+        color: '#f87171',
+        negativeColor: '#34d399',
+        fillOpacity: 0.15,
+        lineWidth: 1,
+      },
     ],
     accessibility: {
       enabled: true,
-      description: 'Solar production and home energy usage over time for ' + rangeLabel + '.',
+      description: 'Solar production, home energy usage, and net grid exchange over time for ' + rangeLabel + '.',
       // Name the series in each point description so Usage points aren't
       // announced as "production" (they share one format string).
       point: { valueDescriptionFormat: '{xDescription}: {series.name} {point.y:.2f} kW' },
@@ -218,8 +240,10 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
         // rangeLabel isn't in Highcharts' format context, so interpolate it
         // into the string here rather than leaving a literal {rangeLabel} token.
         beforeChartFormat:
-          '<h3>Solar production and usage — ' + rangeLabel + '</h3>' +
-          '<div>Line chart with two series: solar production in amber, home usage in blue.</div>' +
+          '<h3>Solar production, usage, and grid exchange — ' + rangeLabel + '</h3>' +
+          '<div>Chart with three series: solar production in amber, home usage in blue, ' +
+          'and net grid exchange — positive values (red) are power imported from the grid, ' +
+          'negative values (green) are power exported to the grid.</div>' +
           '<div>{chartLongdesc}</div>',
       },
       keyboardNavigation: { enabled: true },
@@ -358,10 +382,12 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
   if (state.chart && rangeName && rangeName === state.chartRangeName) {
     const solar = smoothed.map(p => [p.t, p.s == null ? null : parseFloat(p.s.toFixed(3))]);
     const load  = smoothed.map(p => [p.t, p.l == null ? null : parseFloat(p.l.toFixed(3))]);
+    const grid  = smoothed.map(p => [p.t, gridPoint(p)]);
     state.chart.xAxis[0].setExtremes(since * 1000, until * 1000, false, false);
     state.chart.xAxis[0].update({ plotBands: buildPlotBands(events, since, until) }, false);
     state.chart.series[0].setData(solar, false, { duration: 400 });
-    state.chart.series[1].setData(load,  true,  { duration: 400 });
+    state.chart.series[1].setData(load,  false, { duration: 400 });
+    state.chart.series[2].setData(grid,  true,  { duration: 400 });
     return;
   }
 
