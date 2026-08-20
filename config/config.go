@@ -75,7 +75,9 @@ func Default() Config {
 		Addr:                     defaultAddr,
 		ReconnectInitialInterval: Duration(time.Second),
 		ReconnectMaxInterval:     Duration(30 * time.Second),
-		StaleThreshold:           Duration(5 * time.Second),
+		// Above ReconnectMaxInterval: a reconnect can take that long, and a
+		// shorter threshold reports stale data during normal recovery.
+		StaleThreshold: Duration(60 * time.Second),
 		DeviceList: DeviceListConfig{
 			URL:      deviceListURLFromAddr(defaultAddr),
 			Interval: Duration(60 * time.Second),
