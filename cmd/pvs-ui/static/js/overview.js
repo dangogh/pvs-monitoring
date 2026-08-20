@@ -71,11 +71,18 @@ export function updateSummary(s, label) {
   loadEl.parentElement.setAttribute('aria-label', 'Energy consumed: ' + fmtKWh(s.load_kwh) + ' kilowatt-hours');
   avgEl.parentElement.setAttribute('aria-label', 'Average production: ' + fmt1(s.avg_solar_kw) + ' kilowatts');
 
-  const net = s.net_kwh;
+  // Net: colour-code by direction like the "Now" net card, with the direction
+  // also carried by the label, the arrow glyph and the aria-label so the cue
+  // survives without colour vision or without sight.
+  const net       = s.net_kwh;
+  const exporting = net < 0;
+  const netCard   = document.getElementById('sum-net-card');
   setValue(netEl, fmtKWh(Math.abs(net)));
-  const netUnit = net < 0 ? 'kWh exported' : 'kWh imported';
-  netEl.parentElement.querySelector('.summary-unit').textContent = netUnit;
-  netEl.parentElement.setAttribute('aria-label', (net < 0 ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
+  netCard.className = 'summary-card ' + (exporting ? 'net-export' : 'net-import');
+  document.getElementById('sum-net-label').textContent = exporting ? 'Net Export' : 'Net Import';
+  document.getElementById('sum-net-arrow').textContent = exporting ? '↑' : '↓';
+  netCard.querySelector('.summary-unit').textContent = exporting ? 'kWh exported' : 'kWh imported';
+  netCard.setAttribute('aria-label', (exporting ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
 }
 
 // ── Maintenance event plot bands ──────────────────────────────

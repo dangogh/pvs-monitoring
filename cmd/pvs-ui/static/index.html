@@ -165,8 +165,15 @@
 
     .production .stat-value { color: var(--solar); }
     .usage      .stat-value { color: var(--load); }
-    .net-export .stat-value { color: var(--export); }
-    .net-import .stat-value { color: var(--import); }
+    /* Direction colouring, shared by the "Now" net card and the period-summary
+       net card. Colour is never the only cue: the label text and the arrow
+       glyph carry the same information for colour-blind and screen-reader users. */
+    .net-export .stat-value, .net-export .summary-value { color: var(--export); }
+    .net-import .stat-value, .net-import .summary-value { color: var(--import); }
+
+    .net-arrow { font-size: 1.2rem; line-height: 1; }
+    .net-export .net-arrow { color: var(--export); }
+    .net-import .net-arrow { color: var(--import); }
 
     /* ── Range selector ──────────────────────────────────────── */
     .range-row {
@@ -328,6 +335,7 @@
     .summary-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
     .summary-value { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .summary-unit  { font-size: 0.85rem; color: var(--muted); }
+    .summary-row   { display: flex; align-items: baseline; gap: 0.35rem; }
 
     /* ── Panels table ────────────────────────────────────────── */
     .panels-toolbar {
@@ -991,9 +999,12 @@
         <span class="summary-value" id="sum-load">—</span>
         <span class="summary-unit">kWh</span>
       </div>
-      <div class="summary-card" role="group" aria-label="Net energy">
-        <span class="summary-label">Net</span>
-        <span class="summary-value" id="sum-net">—</span>
+      <div class="summary-card" id="sum-net-card" role="group" aria-label="Net energy">
+        <span class="summary-label" id="sum-net-label">Net</span>
+        <span class="summary-row">
+          <span class="summary-value" id="sum-net">—</span>
+          <span class="net-arrow" id="sum-net-arrow" aria-hidden="true"></span>
+        </span>
         <span class="summary-unit">kWh</span>
       </div>
       <div class="summary-card" role="group" aria-label="Average production">
