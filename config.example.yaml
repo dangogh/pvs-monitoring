@@ -8,8 +8,12 @@ addr: ws://YOUR-PVS6-IP:9002
 reconnect_initial_interval: 1s
 reconnect_max_interval: 30s
 
-# Error if no reading has arrived within this window
-stale_threshold: 5s
+# Error if no reading has arrived within this window.
+# Keep this above reconnect_max_interval: a reconnect can take that long, and a
+# shorter threshold reports stale data while the monitor is recovering normally.
+# The PVS6 pushes readings at 1s, so 60s is ~60x the cadence and still catches a
+# genuine telemetry stall within a minute.
+stale_threshold: 60s
 
 # Device list HTTP poller (optional — provides per-device data)
 # Leave password empty to disable.
