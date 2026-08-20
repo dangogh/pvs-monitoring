@@ -19,7 +19,7 @@ function setupDOM() {
     <div class="summary-card"><span id="sum-solar"></span><span class="summary-unit"></span></div>
     <div class="summary-card"><span id="sum-load"></span><span class="summary-unit"></span></div>
     <div class="summary-card"><span id="sum-avg"></span><span class="summary-unit"></span></div>
-    <div class="summary-card"><span id="sum-net"></span><span class="summary-unit">kWh exported</span></div>
+    <div class="summary-card" id="sum-net-card"><span id="sum-net-label">Net</span><span class="summary-row"><span id="sum-net"></span><span id="sum-net-arrow"></span></span><span class="summary-unit">kWh exported</span></div>
   `;
 }
 
@@ -109,14 +109,32 @@ describe('updateSummary', () => {
   it('shows "kWh exported" for negative net', () => {
     updateSummary({ ...summary, net_kwh: -3.0 }, 'Today');
     vi.advanceTimersByTime(200);
-    expect(document.querySelector('#sum-net').parentElement.querySelector('.summary-unit').textContent)
+    expect(document.querySelector('#sum-net-card').querySelector('.summary-unit').textContent)
       .toBe('kWh exported');
   });
 
   it('shows "kWh imported" for positive net', () => {
     updateSummary({ ...summary, net_kwh: 2.0 }, 'Today');
     vi.advanceTimersByTime(200);
-    expect(document.querySelector('#sum-net').parentElement.querySelector('.summary-unit').textContent)
+    expect(document.querySelector('#sum-net-card').querySelector('.summary-unit').textContent)
       .toBe('kWh imported');
+  });
+
+  it('marks the net card as exporting with non-colour cues', () => {
+    updateSummary({ ...summary, net_kwh: -3.0 }, 'Today');
+    const card = document.getElementById('sum-net-card');
+    expect(card.className).toBe('summary-card net-export');
+    expect(document.getElementById('sum-net-label').textContent).toBe('Net Export');
+    expect(document.getElementById('sum-net-arrow').textContent).toBe('↑');
+    expect(card.getAttribute('aria-label')).toContain('Net energy exported');
+  });
+
+  it('marks the net card as importing with non-colour cues', () => {
+    updateSummary({ ...summary, net_kwh: 2.0 }, 'Today');
+    const card = document.getElementById('sum-net-card');
+    expect(card.className).toBe('summary-card net-import');
+    expect(document.getElementById('sum-net-label').textContent).toBe('Net Import');
+    expect(document.getElementById('sum-net-arrow').textContent).toBe('↓');
+    expect(card.getAttribute('aria-label')).toContain('Net energy imported');
   });
 });
