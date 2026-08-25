@@ -469,6 +469,66 @@ func TestEnergyDeltaRouting(t *testing.T) {
 	})
 }
 
+// The PVS6 lifetime counters are supposed to increase monotonically, but a
+// firmware fault made them run backward for ~29h in Aug 2026. Guard both the
+// backward case and the ordinary jitter that rules out summing positive deltas.
+func TestEnergyDeltaNonMonotonicCounters(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+	since := base.Add(-time.Hour)
+	until := base.Add(10 * time.Hour)
+
+	t.Run("counter running backward clamps to zero", func(t *testing.T) {
+		s := openTestStore(t)
+		// Both counters decline across the window, as during the firmware fault.
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(time.Hour), SolarKWh: 95.0, LoadKWh: 45.0},
+			{ReceivedAt: base.Add(2 * time.Hour), SolarKWh: 90.0, LoadKWh: 40.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		// MAX-MIN would report 10.0 here — the size of the decline as energy.
+		assert.InDelta(t, 0.0, got.SolarKWh, 1e-9)
+		assert.InDelta(t, 0.0, got.LoadKWh, 1e-9)
+		assert.InDelta(t, 0.0, got.NetKWh, 1e-9)
+	})
+
+	t.Run("jitter does not inflate the total", func(t *testing.T) {
+		s := openTestStore(t)
+		// Net rise of 10.0, but with backward jitter steps along the way.
+		// Summing positive deltas would return 12.0 instead of 10.0.
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(time.Hour), SolarKWh: 104.0, LoadKWh: 54.0},
+			{ReceivedAt: base.Add(2 * time.Hour), SolarKWh: 103.0, LoadKWh: 53.0},
+			{ReceivedAt: base.Add(3 * time.Hour), SolarKWh: 107.0, LoadKWh: 57.0},
+			{ReceivedAt: base.Add(4 * time.Hour), SolarKWh: 106.0, LoadKWh: 56.0},
+			{ReceivedAt: base.Add(5 * time.Hour), SolarKWh: 110.0, LoadKWh: 60.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 10.0, got.SolarKWh, 1e-9)
+		assert.InDelta(t, 10.0, got.LoadKWh, 1e-9)
+	})
+
+	t.Run("empty window returns zero", func(t *testing.T) {
+		s := openTestStore(t)
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 0.0, got.SolarKWh, 1e-9)
+		assert.InDelta(t, 0.0, got.LoadKWh, 1e-9)
+	})
+}
+
 func TestReadingsSeriesRouting(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
