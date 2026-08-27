@@ -529,6 +529,68 @@ func TestEnergyDeltaNonMonotonicCounters(t *testing.T) {
 	})
 }
 
+// Spans over 48h route through readings_hourly, which needs the same guard.
+func TestEnergyDeltaRollupNonMonotonicCounters(t *testing.T) {
+	ctx := context.Background()
+	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)
+	since := base.Add(-time.Hour)
+	until := base.Add(80 * time.Hour) // > 48h, forces the rollup path
+
+	t.Run("rising counter matches the raw result", func(t *testing.T) {
+		s := openTestStore(t)
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(24 * time.Hour), SolarKWh: 110.0, LoadKWh: 62.0},
+			{ReceivedAt: base.Add(72 * time.Hour), SolarKWh: 125.0, LoadKWh: 75.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 25.0, got.SolarKWh, 1e-6) // 125 - 100
+		assert.InDelta(t, 25.0, got.LoadKWh, 1e-6)  // 75 - 50
+	})
+
+	t.Run("counter running backward clamps to zero", func(t *testing.T) {
+		s := openTestStore(t)
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 125.0, LoadKWh: 75.0},
+			{ReceivedAt: base.Add(24 * time.Hour), SolarKWh: 110.0, LoadKWh: 62.0},
+			{ReceivedAt: base.Add(72 * time.Hour), SolarKWh: 100.0, LoadKWh: 50.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		// MAX-MIN would report 25.0 here — the decline reported as energy.
+		assert.InDelta(t, 0.0, got.SolarKWh, 1e-9)
+		assert.InDelta(t, 0.0, got.LoadKWh, 1e-9)
+	})
+
+	t.Run("mid-range dip does not inflate the total", func(t *testing.T) {
+		s := openTestStore(t)
+		// Dips in the middle, recovers by the end: 100 -> 90 -> 120.
+		// MAX-MIN would report 30; the true net rise is 20.
+		readings := []*pvs.Reading{
+			{ReceivedAt: base, SolarKWh: 100.0, LoadKWh: 50.0},
+			{ReceivedAt: base.Add(24 * time.Hour), SolarKWh: 90.0, LoadKWh: 40.0},
+			{ReceivedAt: base.Add(72 * time.Hour), SolarKWh: 120.0, LoadKWh: 70.0},
+		}
+		for _, r := range readings {
+			require.NoError(t, s.SaveReading(ctx, r))
+		}
+
+		got, err := s.EnergyDelta(ctx, since, until)
+		require.NoError(t, err)
+		assert.InDelta(t, 20.0, got.SolarKWh, 1e-6)
+		assert.InDelta(t, 20.0, got.LoadKWh, 1e-6)
+	})
+}
+
 func TestReadingsSeriesRouting(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2023, 11, 14, 12, 0, 0, 0, time.UTC)

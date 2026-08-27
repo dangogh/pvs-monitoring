@@ -44,6 +44,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/007_maintenance_event_timestamps.sql"),
 	mustSQL("sql/migrations/008_inverter_serial_received_index.sql"),
 	mustSQL("sql/migrations/009_settings.sql"),
+	mustSQL("sql/migrations/010_rollup_first_last.sql"),
 }
 
 var (
@@ -60,8 +61,6 @@ var (
 	sqlSeriesDaily            = mustSQL("sql/queries/series_daily.sql")
 	sqlUpsertHourly           = mustSQL("sql/queries/upsert_hourly.sql")
 	sqlUpsertDaily            = mustSQL("sql/queries/upsert_daily.sql")
-	sqlBackfillHourly         = mustSQL("sql/queries/backfill_hourly.sql")
-	sqlBackfillDaily          = mustSQL("sql/queries/backfill_daily.sql")
 	sqlCountReadings          = mustSQL("sql/queries/count_readings.sql")
 	sqlInsertInverter         = mustSQL("sql/queries/insert_inverter_reading.sql")
 	sqlInsertAuxDevice        = mustSQL("sql/queries/insert_aux_device.sql")
@@ -353,11 +352,33 @@ func migrateV4(tx *sql.Tx) error {
 }
 
 // migrateV5 backfills readings_hourly and readings_daily from the raw readings table.
+// A migration must not reference the current query files: those evolve, but a
+// migration replays against the schema as it stood at its own version. These are
+// the backfill statements frozen as they were at version 5 — before migration 010
+// added the first_/last_ columns. Migration 010 backfills those columns itself.
+const (
+	backfillHourlyV5 = `INSERT OR IGNORE INTO readings_hourly
+    (bucket, avg_solar_kw, avg_load_kw, avg_net_kw, sample_count,
+     min_solar_kwh, max_solar_kwh, min_load_kwh, max_load_kwh)
+SELECT CAST(received_at/3600 AS INTEGER)*3600,
+       AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*),
+       MIN(solar_kwh), MAX(solar_kwh), MIN(load_kwh), MAX(load_kwh)
+FROM readings GROUP BY CAST(received_at/3600 AS INTEGER)*3600`
+
+	backfillDailyV5 = `INSERT OR IGNORE INTO readings_daily
+    (bucket, avg_solar_kw, avg_load_kw, avg_net_kw, sample_count,
+     min_solar_kwh, max_solar_kwh, min_load_kwh, max_load_kwh)
+SELECT CAST(received_at/86400 AS INTEGER)*86400,
+       AVG(solar_kw), AVG(load_kw), AVG(net_kw), COUNT(*),
+       MIN(solar_kwh), MAX(solar_kwh), MIN(load_kwh), MAX(load_kwh)
+FROM readings GROUP BY CAST(received_at/86400 AS INTEGER)*86400`
+)
+
 func migrateV5(tx *sql.Tx) error {
-	if _, err := tx.Exec(sqlBackfillHourly); err != nil {
+	if _, err := tx.Exec(backfillHourlyV5); err != nil {
 		return err
 	}
-	_, err := tx.Exec(sqlBackfillDaily)
+	_, err := tx.Exec(backfillDailyV5)
 	return err
 }
 
@@ -456,13 +477,17 @@ func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
 	}
 	hourBucket := (ts / 3600) * 3600
 	if _, err := tx.ExecContext(ctx, sqlUpsertHourly,
-		hourBucket, r.SolarKW, r.LoadKW, r.NetKW, r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh,
+		hourBucket, r.SolarKW, r.LoadKW, r.NetKW,
+		r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh, // min/max
+		r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh, // first/last
 	); err != nil {
 		return err
 	}
 	dayBucket := (ts / 86400) * 86400
 	if _, err := tx.ExecContext(ctx, sqlUpsertDaily,
-		dayBucket, r.SolarKW, r.LoadKW, r.NetKW, r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh,
+		dayBucket, r.SolarKW, r.LoadKW, r.NetKW,
+		r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh, // min/max
+		r.SolarKWh, r.SolarKWh, r.LoadKWh, r.LoadKWh, // first/last
 	); err != nil {
 		return err
 	}

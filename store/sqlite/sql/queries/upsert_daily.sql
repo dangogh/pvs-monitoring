@@ -1,6 +1,10 @@
+-- first_*_kwh keeps the value already stored (readings arrive in time order, so
+-- the first row to create the bucket holds the earliest value); last_*_kwh always
+-- takes the incoming value. See migration 010 for why min/max are not enough.
 INSERT INTO readings_daily (bucket, avg_solar_kw, avg_load_kw, avg_net_kw, sample_count,
-                            min_solar_kwh, max_solar_kwh, min_load_kwh, max_load_kwh)
-VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                            min_solar_kwh, max_solar_kwh, min_load_kwh, max_load_kwh,
+                            first_solar_kwh, last_solar_kwh, first_load_kwh, last_load_kwh)
+VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(bucket) DO UPDATE SET
     avg_solar_kw  = (avg_solar_kw  * sample_count + excluded.avg_solar_kw)  / (sample_count + 1),
     avg_load_kw   = (avg_load_kw   * sample_count + excluded.avg_load_kw)   / (sample_count + 1),
@@ -9,4 +13,8 @@ ON CONFLICT(bucket) DO UPDATE SET
     min_solar_kwh = MIN(min_solar_kwh, excluded.min_solar_kwh),
     max_solar_kwh = MAX(max_solar_kwh, excluded.max_solar_kwh),
     min_load_kwh  = MIN(min_load_kwh,  excluded.min_load_kwh),
-    max_load_kwh  = MAX(max_load_kwh,  excluded.max_load_kwh)
+    max_load_kwh  = MAX(max_load_kwh,  excluded.max_load_kwh),
+    first_solar_kwh = COALESCE(first_solar_kwh, excluded.first_solar_kwh),
+    last_solar_kwh  = excluded.last_solar_kwh,
+    first_load_kwh  = COALESCE(first_load_kwh,  excluded.first_load_kwh),
+    last_load_kwh   = excluded.last_load_kwh
