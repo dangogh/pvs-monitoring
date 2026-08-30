@@ -8,6 +8,13 @@ Build-Depends: debhelper-compat (= 13), golang-any
 
 Package: pvs-monitoring
 Architecture: any
+# Declared so debhelper can inject any pre-dependency its generated maintainer
+# scripts require — currently the dpkg-maintscript-helper rm_conffile calls from
+# debian/pvs-monitoring.maintscript. On debhelper compat 13 this substvar expands
+# to nothing (the helper needs dpkg >= 1.15.7.2, which predates every supported
+# release), so the field is dropped from the built package; it is here so a
+# future helper that does need one is not silently omitted.
+Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}, curl, jq
 Description: PVS6 solar monitor with MCP integration
  Monitors a SunPower PVS6 solar gateway via WebSocket,
