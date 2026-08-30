@@ -290,6 +290,58 @@ func TestHandleDevices_StoreError(t *testing.T) {
 	}
 }
 
+// --- handlePanelHealth ---
+
+func TestHandlePanelHealth_OK(t *testing.T) {
+	now := time.Now()
+	inverters := []pvs.InverterDevice{
+		{Serial: "INV001", PowerKW: 0.0, ReceivedAt: now},
+		{Serial: "INV002", PowerKW: 0.25, ReceivedAt: now},
+		{Serial: "INV003", PowerKW: 0.25, ReceivedAt: now},
+	}
+	w := httptest.NewRecorder()
+	newServer(&fakeStore{inverters: inverters}).handlePanelHealth(
+		w, httptest.NewRequest(http.MethodGet, "/api/panel-health", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	var got pvs.PanelHealth
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.State != pvs.PanelHealthDegraded {
+		t.Errorf("State = %q, want %q", got.State, pvs.PanelHealthDegraded)
+	}
+	if len(got.NotProducing) != 1 || got.NotProducing[0] != "INV001" {
+		t.Errorf("NotProducing = %v, want [INV001]", got.NotProducing)
+	}
+}
+
+// The empty list must marshal as [] rather than null, so JS consumers can use
+// it without a nil check.
+func TestHandlePanelHealth_EmptyListMarshalsAsArray(t *testing.T) {
+	now := time.Now()
+	inverters := []pvs.InverterDevice{
+		{Serial: "INV001", PowerKW: 0.25, ReceivedAt: now},
+		{Serial: "INV002", PowerKW: 0.25, ReceivedAt: now},
+	}
+	w := httptest.NewRecorder()
+	newServer(&fakeStore{inverters: inverters}).handlePanelHealth(
+		w, httptest.NewRequest(http.MethodGet, "/api/panel-health", nil))
+	if body := w.Body.String(); !strings.Contains(body, `"not_producing":[]`) {
+		t.Errorf("want not_producing as [], got %s", body)
+	}
+}
+
+func TestHandlePanelHealth_StoreError(t *testing.T) {
+	w := httptest.NewRecorder()
+	newServer(&fakeStore{invertersErr: errors.New("fail")}).handlePanelHealth(
+		w, httptest.NewRequest(http.MethodGet, "/api/panel-health", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", w.Code)
+	}
+}
+
 // --- corsMiddleware ---
 
 func TestCORSMiddleware_Options(t *testing.T) {

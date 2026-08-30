@@ -25,6 +25,7 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
+	mux.HandleFunc("GET /api/panel-health", s.handlePanelHealth)
 	mux.HandleFunc("GET /api/inverter-series", s.handleInverterSeries)
 	mux.HandleFunc("GET /api/maintenance-events", s.handleMaintenanceEvents)
 	mux.HandleFunc("POST /api/maintenance-events", s.handleCreateMaintenanceEvent)
@@ -447,6 +448,19 @@ func (s *apiServer) handleDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, inverters)
+}
+
+// handlePanelHealth reports whether any inverter has stopped producing while
+// its peers continue. The verdict has no memory of previous calls, so a client
+// that raises alarms should require the same serials on consecutive polls
+// rather than acting on a single degraded response.
+func (s *apiServer) handlePanelHealth(w http.ResponseWriter, r *http.Request) {
+	inverters, err := s.store.LatestInverters(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, pvs.EvaluatePanelHealth(inverters, time.Now()))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
