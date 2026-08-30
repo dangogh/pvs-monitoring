@@ -53,39 +53,6 @@ func (s *apiServer) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]string{"version": version.Version})
 }
 
-type currentReading struct {
-	SolarKW   float64   `json:"solar_kw"`
-	LoadKW    float64   `json:"load_kw"`
-	NetKW     float64   `json:"net_kw"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-type dataResponse struct {
-	Since      time.Time       `json:"since"`
-	Until      time.Time       `json:"until"`
-	EarliestAt *time.Time      `json:"earliest_at,omitempty"`
-	Current    *currentReading `json:"current"`
-	Summary    summaryData     `json:"summary"`
-	Series     []seriesPoint   `json:"series"`
-}
-
-type summaryData struct {
-	SolarKWh   float64 `json:"solar_kwh"`
-	LoadKWh    float64 `json:"load_kwh"`
-	NetKWh     float64 `json:"net_kwh"`
-	AvgSolarKW float64 `json:"avg_solar_kw"`
-	AvgLoadKW  float64 `json:"avg_load_kw"`
-}
-
-// seriesPoint uses compact keys to minimise JSON payload size.
-// SolarKW and LoadKW are pointers so gap sentinel points serialize as null,
-// which causes Highcharts to break the line instead of connecting across the gap.
-type seriesPoint struct {
-	TimeMS  int64    `json:"t"` // milliseconds — Highcharts datetime axis format
-	SolarKW *float64 `json:"s"`
-	LoadKW  *float64 `json:"l"`
-}
-
 func (s *apiServer) handleCurrent(w http.ResponseWriter, r *http.Request) {
 	reading, err := s.store.LatestReading(r.Context())
 	if err != nil {
@@ -96,7 +63,7 @@ func (s *apiServer) handleCurrent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no data", http.StatusServiceUnavailable)
 		return
 	}
-	writeJSON(w, currentReading{
+	writeJSON(w, pvs.CurrentReading{
 		SolarKW:   reading.SolarKW,
 		LoadKW:    reading.LoadKW,
 		NetKW:     reading.NetKW,
@@ -142,10 +109,10 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := dataResponse{
+	resp := pvs.DataResponse{
 		Since: since,
 		Until: until,
-		Summary: summaryData{
+		Summary: pvs.SummaryData{
 			SolarKWh:   energy.SolarKWh,
 			LoadKWh:    energy.LoadKWh,
 			NetKWh:     energy.NetKWh,
@@ -158,7 +125,7 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 		resp.EarliestAt = &earliestAt
 	}
 	if reading != nil {
-		cr := currentReading{
+		cr := pvs.CurrentReading{
 			SolarKW:   reading.SolarKW,
 			LoadKW:    reading.LoadKW,
 			NetKW:     reading.NetKW,
@@ -188,20 +155,20 @@ func parseTimeRange(r *http.Request) (since, until time.Time, err error) {
 	return time.Unix(sinceUnix, 0), time.Unix(untilUnix, 0), nil
 }
 
-func toSeriesPoints(pts []pvs.SeriesPoint, bucketSeconds int64) []seriesPoint {
+func toSeriesPoints(pts []pvs.SeriesPoint, bucketSeconds int64) []pvs.SeriesJSON {
 	if len(pts) == 0 {
 		return nil
 	}
 	gap := time.Duration(bucketSeconds*2) * time.Second
-	out := make([]seriesPoint, 0, len(pts))
+	out := make([]pvs.SeriesJSON, 0, len(pts))
 	for i, p := range pts {
 		if i > 0 && p.Time.Sub(pts[i-1].Time) > gap {
 			// Insert a null sentinel so Highcharts breaks the line across the gap.
 			mid := pts[i-1].Time.Add(p.Time.Sub(pts[i-1].Time) / 2)
-			out = append(out, seriesPoint{TimeMS: mid.UnixMilli()})
+			out = append(out, pvs.SeriesJSON{TimeMS: mid.UnixMilli()})
 		}
 		s, l := p.SolarKW, p.LoadKW
-		out = append(out, seriesPoint{TimeMS: p.Time.UnixMilli(), SolarKW: &s, LoadKW: &l})
+		out = append(out, pvs.SeriesJSON{TimeMS: p.Time.UnixMilli(), SolarKW: &s, LoadKW: &l})
 	}
 	return out
 }
@@ -417,12 +384,6 @@ func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, maskConfig(settings))
 }
 
-type inverterSeriesPoint struct {
-	TimeMS  int64   `json:"t"`
-	Serial  string  `json:"serial"`
-	PowerKW float64 `json:"p"`
-}
-
 func (s *apiServer) handleInverterSeries(w http.ResponseWriter, r *http.Request) {
 	since, until, err := parseTimeRange(r)
 	if err != nil {
@@ -434,9 +395,9 @@ func (s *apiServer) handleInverterSeries(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	out := make([]inverterSeriesPoint, len(pts))
+	out := make([]pvs.InverterSeriesJSON, len(pts))
 	for i, p := range pts {
-		out[i] = inverterSeriesPoint{TimeMS: p.Time.UnixMilli(), Serial: p.Serial, PowerKW: p.PowerKW}
+		out[i] = pvs.InverterSeriesJSON{TimeMS: p.Time.UnixMilli(), Serial: p.Serial, PowerKW: p.PowerKW}
 	}
 	writeJSON(w, out)
 }
