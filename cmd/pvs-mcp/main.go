@@ -12,17 +12,14 @@ import (
 
 	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/pvs"
-	"github.com/dangogh/pvs-monitoring/store/sqlite"
 )
 
-func defaultDBPath() string {
-	home, _ := os.UserHomeDir()
-	base := os.Getenv("XDG_DATA_HOME")
-	if base == "" {
-		base = home + "/.local/share"
-	}
-	return base + "/pvs-monitor/readings.db"
-}
+// defaultAPIURL is the pvs-api serving the array. pvs-mcp is spawned by the
+// MCP client, which is not necessarily the machine holding the database, so it
+// reads over HTTP rather than opening SQLite. Reading a local copy of the
+// database would answer every question confidently from whenever that copy was
+// last written.
+const defaultAPIURL = "http://solar.local"
 
 func main() {
 	if err := run(os.Args[1:], os.Stderr, &mcp.StdioTransport{}); err != nil {
@@ -33,10 +30,10 @@ func main() {
 
 func run(args []string, logOut io.Writer, transport mcp.Transport) error {
 	fs := flag.NewFlagSet("pvs-mcp", flag.ContinueOnError)
-	var cfgPath, dbPath string
+	var cfgPath, apiURL string
 	var verbose bool
 	fs.StringVar(&cfgPath, "config", config.DefaultPath(), "path to config file")
-	fs.StringVar(&dbPath, "db", defaultDBPath(), "path to SQLite database")
+	fs.StringVar(&apiURL, "api", defaultAPIURL, "base URL of the pvs-api server")
 	fs.BoolVar(&verbose, "verbose", false, "enable debug logging")
 	fs.BoolVar(&verbose, "v", false, "enable debug logging (shorthand)")
 	if err := fs.Parse(args); err != nil {
@@ -54,15 +51,14 @@ func run(args []string, logOut io.Writer, transport mcp.Transport) error {
 	}
 	logger := slog.New(slog.NewTextHandler(logOut, &slog.HandlerOptions{Level: level}))
 
-	store, err := sqlite.OpenReadOnly(dbPath)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = store.Close() }()
-	logger.Info("pvs-mcp starting", "db", dbPath)
+	// The API is deliberately not probed here. A client launching while the
+	// monitoring host is rebooting should still come up; the first tool call
+	// reports the problem, and reports it as an outage rather than as data.
+	api := pvs.NewClient(apiURL)
+	logger.Info("pvs-mcp starting", "api", apiURL)
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "pvs-mcp", Version: "0.1.0"}, nil)
-	pvs.RegisterTools(server, store, cfg)
+	pvs.RegisterTools(server, api, cfg)
 
 	return server.Run(context.Background(), transport)
 }
