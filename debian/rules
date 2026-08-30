@@ -33,9 +33,15 @@ override_dh_auto_install:
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
 
-	# Install example config (as both the example and the default live config)
+	# Install the example config. The seed copy that postinst turns into the
+	# live config.yaml on a fresh install goes under /usr/share, NOT /etc:
+	# anything shipped under /etc is registered as a conffile, and postinst
+	# deletes its own seed file on every upgrade that already has a config.
+	# dpkg then sees a conffile "deleted by you or by a script" and prompts
+	# interactively on the next upgrade — which wedges the unattended cron
+	# updater, since it has no stdin to answer with.
 	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.example
-	install -D -m 644 config.example.yaml $(DESTDIR)/etc/pvs-monitor/config.yaml.dpkg-new
+	install -D -m 644 config.example.yaml $(DESTDIR)/usr/share/pvs-monitoring/config.yaml.default
 
 	# Install update script
 	install -D -m 755 pvs-update.sh $(DESTDIR)/usr/bin/pvs-update

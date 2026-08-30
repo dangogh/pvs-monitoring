@@ -1,0 +1,7 @@
+# /etc/pvs-monitor/config.yaml.dpkg-new was shipped under /etc, which made dpkg
+# register it as a conffile, while postinst deleted it on every upgrade that
+# already had a config.yaml. dpkg then prompted "deleted by you or by a script"
+# on the following upgrade and wedged the unattended cron updater. The seed file
+# now lives at /usr/share/pvs-monitoring/config.yaml.default instead; deregister
+# the old conffile so upgrading hosts stop being prompted about it.
+rm_conffile /etc/pvs-monitor/config.yaml.dpkg-new 1.13.0 pvs-monitoring

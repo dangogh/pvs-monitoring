@@ -13,12 +13,12 @@ if [ "$1" = "configure" ]; then
     chown pvs-monitoring:pvs-monitoring /var/lib/pvs-monitor /etc/pvs-monitor
     chmod 750 /var/lib/pvs-monitor /etc/pvs-monitor
 
-    # If config.yaml doesn't exist, put the default in place
+    # If config.yaml doesn't exist, seed it from the packaged default. The
+    # source lives under /usr/share (not /etc) so it is not a conffile: copy
+    # it, never move it, and leave it in place on upgrades.
     if [ ! -f /etc/pvs-monitor/config.yaml ]; then
-        mv /etc/pvs-monitor/config.yaml.dpkg-new /etc/pvs-monitor/config.yaml
+        cp /usr/share/pvs-monitoring/config.yaml.default /etc/pvs-monitor/config.yaml
         echo "Created /etc/pvs-monitor/config.yaml — edit it to set your PVS6 address and credentials."
-    else
-        rm -f /etc/pvs-monitor/config.yaml.dpkg-new
     fi
     chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml 2>/dev/null || true
     chown pvs-monitoring:pvs-monitoring /etc/pvs-monitor/config.yaml.example 2>/dev/null || true
@@ -62,5 +62,7 @@ if [ "$1" = "configure" ]; then
     echo "0 3 * * * root /usr/bin/pvs-update >> /var/log/pvs-update.log 2>&1" > "$CRON_FILE"
     chmod 644 "$CRON_FILE"
 fi
+
+#DEBHELPER#
 
 exit 0
