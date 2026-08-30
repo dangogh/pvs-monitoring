@@ -35,6 +35,7 @@ SQLite reads only              embeds static/index.html
 → GET /api/current             reverse-proxies /api/ → pvs-api
 → GET /api/data
 → GET /api/devices
+→ GET /api/panel-health
 ```
 
 `pvs-monitor` runs as a long-lived daemon. `pvs-mcp` is spawned on demand by Claude Desktop and exits when the MCP stdio session ends. `pvs-api` is an HTTP REST server; `pvs-ui` serves the embedded SPA and proxies API requests to `pvs-api`. All four share the same SQLite database file; WAL mode allows concurrent access.
@@ -51,7 +52,7 @@ SQLite reads only              embeds static/index.html
 
 - **`cmd/pvs-mcp`** — MCP server entrypoint. Opens SQLite read-only, registers tools, runs stdio transport. The `StdioTransport` owns the process lifetime.
 
-- **`cmd/pvs-api`** — HTTP REST server. Reads from SQLite and exposes `/api/current`, `/api/data`, and `/api/devices` with CORS headers.
+- **`cmd/pvs-api`** — HTTP REST server. Reads from SQLite and exposes `/api/current`, `/api/data`, `/api/devices`, and `/api/panel-health` with CORS headers.
 
 - **`cmd/pvs-ui`** — Serves an embedded `static/index.html` and reverse-proxies `/api/` to `pvs-api`.
 
@@ -60,6 +61,7 @@ SQLite reads only              embeds static/index.html
 - `Monitor` and `DevicePoller` are injectable via interfaces (`dialer`, `httpDoer`) for testing without real network connections.
 - All MCP tools read from `Store`. `get_current_power` and `get_energy_summary` call `store.LatestReading()` and check staleness against `cfg.StaleThreshold`.
 - `get_device_list` reads from `store.LatestDevices()` — all four tools are always registered; they return an error if no data exists yet.
+- `pvs.EvaluatePanelHealth` (behind `/api/panel-health`) detects inverters producing far less than their peers. Detection is deliberately generic — no serial is special-cased, because an alarm fitted to the panels that already failed cannot catch the next failure elsewhere. Panels are compared against the 90th percentile of the array (not the median, which goes blind once more than half the array is out), and no verdict is given at all unless the array is producing enough to tell a fault from nightfall. The result is stateless, so callers that raise alarms should require the same serials on consecutive polls.
 - Reconnect uses exponential backoff between `ReconnectInitialInterval` and `ReconnectMaxInterval`.
 - `DevicePoller` uses a two-step auth flow: GET `/auth?login` with Basic auth to get a session cookie, then use it for subsequent requests. Uses the same scheme as `cfg.URL` (plain HTTP on most PVS6 units). The HTTP client forces HTTP/1.1 via `TLSClientConfig.NextProtos` in case TLS is in use, to avoid a hang from Go's HTTP/2 + `InsecureSkipVerify`.
 - On startup, `DevicePoller` enables WebSocket telemetry via `POST /vars?set=/sys/telemetryws/enable=1`. PVS6 firmware 2025.10+ disables this by default and resets it on reboot.
