@@ -20,10 +20,27 @@ fi
 # Strip leading 'v' to match dpkg version format
 latest_ver="${latest#v}"
 
-# Currently installed version (empty string if not installed)
+# Currently installed version and dpkg state (empty strings if not installed).
+# The state matters as much as the version: a package that failed to configure
+# is left "unpacked" with the NEW version already recorded, so comparing
+# versions alone would report it as up to date forever while the running
+# services stay on the old binaries. Repair that case instead of skipping it.
 installed=$(dpkg-query -W -f='${Version}' "$PKG" 2>/dev/null || true)
+state=$(dpkg-query -W -f='${db:Status-Status}' "$PKG" 2>/dev/null || true)
 
-if [[ "$installed" == "$latest_ver" ]]; then
+if [[ -n "$installed" && "$state" != "installed" ]]; then
+  log "WARNING: ${PKG} ${installed} is in dpkg state '${state}', not 'installed' — repairing"
+  if sudo DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold \
+       --configure "$PKG" </dev/null; then
+    log "Repaired — ${PKG} ${installed} now configured"
+    state=$(dpkg-query -W -f='${db:Status-Status}' "$PKG" 2>/dev/null || true)
+  else
+    log "ERROR: could not configure ${PKG}; manual intervention needed"
+    exit 1
+  fi
+fi
+
+if [[ "$installed" == "$latest_ver" && "$state" == "installed" ]]; then
   log "Already at latest version ${latest_ver} — nothing to do"
   exit 0
 fi
@@ -44,7 +61,20 @@ trap 'rm -f "$tmp"' EXIT
 log "Downloading ${deb_url}"
 curl -sfL "$deb_url" -o "$tmp"
 
+# This runs unattended from cron, so it must never reach an interactive prompt.
+# Redirecting stdin from /dev/null alone is not enough — dpkg treats EOF at a
+# conffile prompt as a fatal error — so also pre-answer conffile questions by
+# keeping the installed version of any config the admin has modified.
 log "Installing..."
-sudo dpkg -i "$tmp"
+sudo DEBIAN_FRONTEND=noninteractive dpkg --force-confdef --force-confold \
+  -i "$tmp" </dev/null
+
+# dpkg -i exits 0 in some partial-failure cases, so confirm the end state
+# rather than trusting the exit code.
+state=$(dpkg-query -W -f='${db:Status-Status}' "$PKG" 2>/dev/null || true)
+if [[ "$state" != "installed" ]]; then
+  log "ERROR: ${PKG} left in dpkg state '${state}' after install — services may still be running old binaries"
+  exit 1
+fi
 
 log "Done — ${PKG} ${latest_ver} installed"
