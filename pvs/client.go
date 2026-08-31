@@ -21,6 +21,12 @@ var ErrUnreachable = errors.New("pvs-api unreachable")
 // ErrNoData reports that pvs-api answered but has no reading to give yet.
 var ErrNoData = errors.New("no data available yet")
 
+// ErrUnsupported reports that pvs-api answered but does not serve the endpoint,
+// meaning it is older than the feature. Distinct from ErrUnreachable for the
+// same reason ErrNoData is: the host is healthy and the fix is to upgrade it,
+// not to go looking at the network.
+var ErrUnsupported = errors.New("endpoint not supported by this pvs-api")
+
 // API is the read surface the MCP tools need. Client implements it against a
 // running pvs-api; tests supply a fake.
 type API interface {
@@ -65,6 +71,8 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	case resp.StatusCode == http.StatusServiceUnavailable:
 		// The API answered; it simply has nothing yet. Not an outage.
 		return ErrNoData
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("%w: %s", ErrUnsupported, path)
 	case resp.StatusCode != http.StatusOK:
 		return fmt.Errorf("%w: %s returned %s", ErrUnreachable, path, resp.Status)
 	}

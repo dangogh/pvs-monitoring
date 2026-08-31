@@ -208,6 +208,31 @@ func TestPanelHealthTool(t *testing.T) {
 	assert.Equal(t, []string{"E00121", "E00122"}, got.NotProducing)
 }
 
+// Observed against solarwatch, which runs pvs-api v1.13.1: the endpoint 404s
+// because that version predates it. The message must point at the version, not
+// at the network.
+func TestPanelHealthToolOnOldServer(t *testing.T) {
+	_, _, err := panelHealth(context.Background(), &fakeAPI{healthErr: ErrUnsupported})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too old")
+	assert.NotContains(t, err.Error(), "unreachable")
+}
+
+// get_status must still answer on a server too old for panel health.
+func TestGetStatusOnServerWithoutPanelHealth(t *testing.T) {
+	api := &fakeAPI{
+		current:   CurrentReading{SolarKW: 3.32, UpdatedAt: time.Now()},
+		healthErr: ErrUnsupported,
+	}
+	result, _, err := getStatus(context.Background(), api, time.Minute)
+	require.NoError(t, err)
+
+	var got statusResult
+	decode(t, result, &got)
+	assert.Equal(t, 3.32, got.SolarKW)
+	assert.Nil(t, got.PanelHealth)
+}
+
 func TestPanelHealthToolUnreachable(t *testing.T) {
 	_, _, err := panelHealth(context.Background(), &fakeAPI{healthErr: ErrUnreachable})
 	assert.ErrorIs(t, err, ErrUnreachable)

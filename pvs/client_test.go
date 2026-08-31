@@ -39,6 +39,19 @@ func TestClientNoDataIsNotUnreachable(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrUnreachable)
 }
 
+// A 404 means the server is healthy but predates the endpoint. Reporting that
+// as an outage sends the reader looking at the network instead of the version.
+func TestClientNotFoundIsUnsupported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.NotFound(w, nil)
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL).PanelHealth(context.Background())
+	assert.ErrorIs(t, err, ErrUnsupported)
+	assert.NotErrorIs(t, err, ErrUnreachable)
+}
+
 func TestClientUnreachable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)

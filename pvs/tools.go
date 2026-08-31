@@ -3,6 +3,7 @@ package pvs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -114,6 +115,9 @@ func getStatus(ctx context.Context, api API, staleThreshold time.Duration) (*mcp
 
 func panelHealth(ctx context.Context, api API) (*mcp.CallToolResult, any, error) {
 	h, err := api.PanelHealth(ctx)
+	if errors.Is(err, ErrUnsupported) {
+		return nil, nil, fmt.Errorf("this pvs-api is too old to report panel health (added in v1.14.0); upgrade the monitoring host")
+	}
 	if err != nil {
 		return nil, nil, err
 	}
