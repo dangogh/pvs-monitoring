@@ -133,9 +133,12 @@ type historyResult struct {
 	AvgSolarKW float64 `json:"avg_solar_kw"`
 	AvgLoadKW  float64 `json:"avg_load_kw"`
 	EarliestAt string  `json:"earliest_at,omitempty"`
-	// Warning flags a result that should not be read at face value.
-	Warning string       `json:"warning,omitempty"`
-	Series  []SeriesJSON `json:"series,omitempty"`
+	// Warnings flag a result that should not be read at face value. There can
+	// be more than one — a range predating the data and a counter regression
+	// are independent, and a reader who is told only about the second would
+	// draw a wrong conclusion from the first.
+	Warnings []string     `json:"warnings,omitempty"`
+	Series   []SeriesJSON `json:"series,omitempty"`
 }
 
 func getHistory(ctx context.Context, api API, args historyArgs) (*mcp.CallToolResult, any, error) {
@@ -161,7 +164,8 @@ func getHistory(ctx context.Context, api API, args historyArgs) (*mcp.CallToolRe
 	if data.EarliestAt != nil {
 		out.EarliestAt = data.EarliestAt.Format(time.RFC3339)
 		if since.Before(*data.EarliestAt) {
-			out.Warning = "range starts before the earliest recorded reading; totals cover only the recorded part"
+			out.Warnings = append(out.Warnings,
+				"range starts before the earliest recorded reading; totals cover only the recorded part")
 		}
 	}
 	// Energy is derived from cumulative counters, which are assumed to only
@@ -169,7 +173,8 @@ func getHistory(ctx context.Context, api API, args historyArgs) (*mcp.CallToolRe
 	// yields a plausible-looking negative total; say so rather than letting it
 	// be read as a real number.
 	if data.Summary.SolarKWh < 0 || data.Summary.LoadKWh < 0 {
-		out.Warning = "negative energy total: the cumulative counters ran backwards over this range, so these figures are not trustworthy"
+		out.Warnings = append(out.Warnings,
+			"negative energy total: the cumulative counters ran backwards over this range, so these figures are not trustworthy")
 	}
 	if args.Series {
 		out.Series = data.Series

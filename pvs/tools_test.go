@@ -116,7 +116,7 @@ func TestGetHistoryPeriod(t *testing.T) {
 	decode(t, result, &got)
 	assert.Equal(t, 31.5, got.SolarKWh)
 	assert.Equal(t, 1.3, got.AvgSolarKW)
-	assert.Empty(t, got.Warning)
+	assert.Empty(t, got.Warnings)
 	// The series is large, so it is omitted unless asked for.
 	assert.Empty(t, got.Series)
 	assert.InDelta(t, 7*24*time.Hour, api.gotUntil.Sub(api.gotSince), float64(time.Second))
@@ -157,7 +157,8 @@ func TestGetHistoryWarnsOnNegativeEnergy(t *testing.T) {
 
 	var got historyResult
 	decode(t, result, &got)
-	assert.Contains(t, got.Warning, "backwards")
+	assert.Len(t, got.Warnings, 1)
+	assert.Contains(t, got.Warnings[0], "backwards")
 }
 
 func TestGetHistoryWarnsWhenRangePredatesData(t *testing.T) {
@@ -169,8 +170,29 @@ func TestGetHistoryWarnsWhenRangePredatesData(t *testing.T) {
 
 	var got historyResult
 	decode(t, result, &got)
-	assert.Contains(t, got.Warning, "earliest recorded reading")
+	assert.Len(t, got.Warnings, 1)
+	assert.Contains(t, got.Warnings[0], "earliest recorded reading")
 	assert.Equal(t, earliest.Format(time.RFC3339), got.EarliestAt)
+}
+
+// The two warning conditions are independent, so both must survive. A single
+// warning field silently dropped the first one, which is the failure mode the
+// warnings exist to prevent.
+func TestGetHistoryReportsEveryWarning(t *testing.T) {
+	earliest := time.Now().Add(-48 * time.Hour)
+	api := &fakeAPI{data: DataResponse{
+		EarliestAt: &earliest,
+		Summary:    SummaryData{SolarKWh: -4.2},
+	}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "30d"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	require.Len(t, got.Warnings, 2)
+	assert.Contains(t, got.Warnings[0], "earliest recorded reading")
+	assert.Contains(t, got.Warnings[1], "backwards")
 }
 
 func TestGetHistoryBadArgs(t *testing.T) {

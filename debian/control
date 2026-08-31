@@ -15,7 +15,7 @@ Architecture: any
 # release), so the field is dropped from the built package; it is here so a
 # future helper that does need one is not silently omitted.
 Pre-Depends: ${misc:Pre-Depends}
-Depends: ${shlibs:Depends}, ${misc:Depends}, curl, jq
+Depends: ${shlibs:Depends}, ${misc:Depends}, curl, jq, openssl (>= 1.1.1)
 Description: PVS6 solar monitor with MCP integration
  Monitors a SunPower PVS6 solar gateway via WebSocket,
  persists power readings to SQLite, and exposes data

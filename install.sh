@@ -14,6 +14,15 @@ need() {
 need go
 need openssl
 
+# postinst and the cert generation below pass -addext, which OpenSSL gained in
+# 1.1.1. Without it the certificate is written with no subjectAltName, which
+# modern TLS clients reject outright rather than falling back to CN.
+openssl_version="$(openssl version | awk '{print $2}')"
+if [[ "$(printf '%s\n1.1.1\n' "$openssl_version" | sort -V | head -1)" != "1.1.1" ]]; then
+    echo "error: openssl >= 1.1.1 is required (found $openssl_version)"
+    exit 1
+fi
+
 GO_VERSION=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1)
 echo "Using $GO_VERSION"
 
