@@ -14,6 +14,15 @@ need() {
 need go
 need openssl
 
+# postinst and the cert generation below pass -addext, which OpenSSL gained in
+# 1.1.1. Without it the certificate is written with no subjectAltName, which
+# modern TLS clients reject outright rather than falling back to CN.
+openssl_version="$(openssl version | awk '{print $2}')"
+if [[ "$(printf '%s\n1.1.1\n' "$openssl_version" | sort -V | head -1)" != "1.1.1" ]]; then
+    echo "error: openssl >= 1.1.1 is required (found $openssl_version)"
+    exit 1
+fi
+
 GO_VERSION=$(go version | grep -oE 'go[0-9]+\.[0-9]+' | head -1)
 echo "Using $GO_VERSION"
 
@@ -53,10 +62,14 @@ TLS_CERT="$DATA_DIR/server.crt"
 TLS_KEY="$DATA_DIR/server.key"
 if [[ ! -f "$TLS_CERT" || ! -f "$TLS_KEY" ]]; then
     echo "Generating self-signed TLS certificate for pvs-api..."
+    # subjectAltName is required, not decorative: Go (and modern TLS clients
+    # generally) have refused to read the hostname from CN since Go 1.15, so a
+    # cert without SANs cannot be verified even when trusted explicitly.
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
         -days 3650 -nodes \
         -keyout "$TLS_KEY" -out "$TLS_CERT" \
         -subj "/CN=$(hostname)" \
+        -addext "subjectAltName=DNS:$(hostname),DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1" \
         2>/dev/null
     chmod 600 "$TLS_KEY"
     echo "Certificate: $TLS_CERT"

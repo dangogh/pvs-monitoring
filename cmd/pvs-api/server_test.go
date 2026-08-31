@@ -115,7 +115,7 @@ func TestHandleCurrent_OK(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	var got currentReading
+	var got pvs.CurrentReading
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestHandleData_OK(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
 	}
-	var got dataResponse
+	var got pvs.DataResponse
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestHandleData_NoCurrentReading(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
 	}
-	var got dataResponse
+	var got pvs.DataResponse
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}

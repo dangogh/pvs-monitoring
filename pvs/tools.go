@@ -3,6 +3,7 @@ package pvs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,82 +17,202 @@ import (
 // noArgs is the input type for tools that take no arguments.
 type noArgs struct{}
 
-type avgArgs struct {
+type historyArgs struct {
 	Period string `json:"period,omitempty"`
 	Start  string `json:"start,omitempty"`
 	End    string `json:"end,omitempty"`
+	Series bool   `json:"series,omitempty"`
 }
 
-type energyArgs struct {
-	Start string `json:"start,omitempty"`
-	End   string `json:"end,omitempty"`
-}
-
-// RegisterTools adds the PVS6 MCP tools to the server.
-// All tools read from store; get_current_power and get_energy_summary return an error
-// if no reading exists or if the latest reading is stale.
-func RegisterTools(s *mcp.Server, store Store, cfg config.Config) {
+// RegisterTools adds the PVS6 MCP tools to the server. All tools read through
+// api, which is normally a Client pointing at a running pvs-api.
+//
+// Failures are reported in two distinct ways on purpose. A tool errors only
+// when pvs-api could not be reached at all; data that is merely old comes back
+// as a normal result carrying stale and age_seconds. The difference is itself
+// diagnostic: an error means the host or network is down, while a stale result
+// means the host is fine and the PVS6 link is not.
+func RegisterTools(s *mcp.Server, api API, cfg config.Config) {
 	stale := cfg.StaleThreshold.Duration()
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_current_power",
-		Description: "Returns the latest instantaneous power readings from the PVS6 solar monitor (kW).",
+		Name: "get_status",
+		Description: "Returns the current state of the solar array: instantaneous power (kW), " +
+			"how old that reading is, and a panel-health verdict covering every inverter. " +
+			"Start here for any question about how the system is doing right now. " +
+			"A result with stale=true means the monitor has stopped reporting; the values are " +
+			"the last ones seen, not current.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
-		return currentPower(ctx, store, stale)
+		return getStatus(ctx, api, stale)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_energy_summary",
-		Description: "Returns cumulative energy totals (kWh) from the PVS6. Without arguments returns the latest live totals. With start/end (YYYY-MM-DD or RFC3339) returns energy generated in that period.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args energyArgs) (*mcp.CallToolResult, any, error) {
-		if args.Start != "" || args.End != "" {
-			return energyDelta(ctx, store, args.Start, args.End)
-		}
-		return energySummary(ctx, store, stale)
+		Name: "get_history",
+		Description: "Returns energy produced and consumed (kWh) plus average power over a time range. " +
+			"Use period (e.g. '7d', '24h') for a trailing window, or start/end (YYYY-MM-DD or RFC3339). " +
+			"Set series=true to also get the time-bucketed curve, which is large — omit it unless " +
+			"the shape of the day matters. The response echoes the resolved absolute range, and " +
+			"earliest_at reports where the recorded data begins.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args historyArgs) (*mcp.CallToolResult, any, error) {
+		return getHistory(ctx, api, args)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_average_power",
-		Description: "Returns average power. Use period (e.g. '7d', '24h', '1h') for a trailing window, or start/end (YYYY-MM-DD or RFC3339) for a specific range. end defaults to now.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, args avgArgs) (*mcp.CallToolResult, any, error) {
-		return averagePower(ctx, store, args)
-	})
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "get_device_list",
-		Description: "Returns the latest per-device readings from the PVS6, including individual inverters, power meters, and battery (if present).",
+		Name: "get_panel_health",
+		Description: "Checks whether any inverter has stopped producing while its peers continue, " +
+			"by comparing every panel against a high percentile of the array. " +
+			"The verdict is a single point in time with no memory: a passing cloud can zero a few " +
+			"panels for one sample. Before reporting a fault, call again and require the same " +
+			"serials to appear on consecutive checks. A state of no_verdict means there is too " +
+			"little production to distinguish a fault from nightfall.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, any, error) {
-		return deviceList(ctx, store)
+		return panelHealth(ctx, api)
 	})
-
 }
 
-func latestReading(ctx context.Context, store Store, staleThreshold time.Duration) (*Reading, error) {
-	r, err := store.LatestReading(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if r == nil {
-		return nil, fmt.Errorf("no reading available yet")
-	}
-	if r.IsStale(staleThreshold) {
-		return nil, fmt.Errorf("reading is stale (last received %s ago)", time.Since(r.ReceivedAt).Round(time.Second))
-	}
-	return r, nil
-}
-
-func currentPower(ctx context.Context, store Store, staleThreshold time.Duration) (*mcp.CallToolResult, any, error) {
-	r, err := latestReading(ctx, store, staleThreshold)
-	if err != nil {
-		return nil, nil, err
-	}
-	data, err := json.Marshal(r.Power())
+// jsonResult marshals v as the tool's text content.
+func jsonResult(v any) (*mcp.CallToolResult, any, error) {
+	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, nil, err
 	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil
+}
+
+type statusResult struct {
+	SolarKW     float64      `json:"solar_kw"`
+	LoadKW      float64      `json:"load_kw"`
+	NetKW       float64      `json:"net_kw"`
+	UpdatedAt   string       `json:"updated_at"`
+	AgeSeconds  int64        `json:"age_seconds"`
+	Stale       bool         `json:"stale"`
+	PanelHealth *PanelHealth `json:"panel_health,omitempty"`
+}
+
+func getStatus(ctx context.Context, api API, staleThreshold time.Duration) (*mcp.CallToolResult, any, error) {
+	cur, err := api.Current(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	age := time.Since(cur.UpdatedAt)
+	out := statusResult{
+		SolarKW:    cur.SolarKW,
+		LoadKW:     cur.LoadKW,
+		NetKW:      cur.NetKW,
+		UpdatedAt:  cur.UpdatedAt.Format(time.RFC3339),
+		AgeSeconds: int64(age.Seconds()),
+		Stale:      age > staleThreshold,
+	}
+	// Panel health is supplementary: a missing verdict should not cost the
+	// caller the power reading it also asked for.
+	if h, err := api.PanelHealth(ctx); err == nil {
+		out.PanelHealth = &h
+	}
+	return jsonResult(out)
+}
+
+func panelHealth(ctx context.Context, api API) (*mcp.CallToolResult, any, error) {
+	h, err := api.PanelHealth(ctx)
+	if errors.Is(err, ErrUnsupported) {
+		return nil, nil, fmt.Errorf("this pvs-api is too old to report panel health (added in v1.14.0); upgrade the monitoring host")
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return jsonResult(h)
+}
+
+type historyResult struct {
+	Start      string  `json:"start"`
+	End        string  `json:"end"`
+	SolarKWh   float64 `json:"solar_kwh"`
+	LoadKWh    float64 `json:"load_kwh"`
+	NetKWh     float64 `json:"net_kwh"`
+	AvgSolarKW float64 `json:"avg_solar_kw"`
+	AvgLoadKW  float64 `json:"avg_load_kw"`
+	EarliestAt string  `json:"earliest_at,omitempty"`
+	// Warnings flag a result that should not be read at face value. There can
+	// be more than one — a range predating the data and a counter regression
+	// are independent, and a reader who is told only about the second would
+	// draw a wrong conclusion from the first.
+	Warnings []string     `json:"warnings,omitempty"`
+	Series   []SeriesJSON `json:"series,omitempty"`
+}
+
+func getHistory(ctx context.Context, api API, args historyArgs) (*mcp.CallToolResult, any, error) {
+	since, until, err := resolveRange(args)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	data, err := api.Data(ctx, since, until)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	out := historyResult{
+		Start:      since.Format(time.RFC3339),
+		End:        until.Format(time.RFC3339),
+		SolarKWh:   data.Summary.SolarKWh,
+		LoadKWh:    data.Summary.LoadKWh,
+		NetKWh:     data.Summary.NetKWh,
+		AvgSolarKW: data.Summary.AvgSolarKW,
+		AvgLoadKW:  data.Summary.AvgLoadKW,
+	}
+	if data.EarliestAt != nil {
+		out.EarliestAt = data.EarliestAt.Format(time.RFC3339)
+		if since.Before(*data.EarliestAt) {
+			out.Warnings = append(out.Warnings,
+				"range starts before the earliest recorded reading; totals cover only the recorded part")
+		}
+	}
+	// Energy is derived from cumulative counters, which are assumed to only
+	// ever climb. A firmware fault has made them run backwards before, which
+	// yields a plausible-looking negative total; say so rather than letting it
+	// be read as a real number.
+	if data.Summary.SolarKWh < 0 || data.Summary.LoadKWh < 0 {
+		out.Warnings = append(out.Warnings,
+			"negative energy total: the cumulative counters ran backwards over this range, so these figures are not trustworthy")
+	}
+	if args.Series {
+		out.Series = data.Series
+	}
+	return jsonResult(out)
+}
+
+// resolveRange turns the tool's human-friendly arguments into an absolute
+// range. Date-only arguments are interpreted in the local timezone and the
+// resolved range is echoed back in the result, so a day boundary that lands
+// somewhere unexpected is visible rather than silent.
+func resolveRange(args historyArgs) (since, until time.Time, err error) {
+	if args.Start != "" || args.End != "" {
+		if args.Start == "" {
+			return time.Time{}, time.Time{}, fmt.Errorf("start is required when end is specified")
+		}
+		since, until, err = parseTimeRange(args.Start, args.End)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		// A reversed range is almost certainly a mistake, and pvs-api answers it
+		// with zeroes rather than an error — which reads as "no production" and
+		// is worse than being told the arguments were wrong.
+		if !until.After(since) {
+			return time.Time{}, time.Time{}, fmt.Errorf("end (%s) must be after start (%s)",
+				until.Format(time.RFC3339), since.Format(time.RFC3339))
+		}
+		return since, until, nil
+	}
+	if args.Period == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("provide period (e.g. '24h') or start/end dates")
+	}
+	d, err := parsePeriod(args.Period)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	until = time.Now()
+	return until.Add(-d), until, nil
 }
 
 func parsePeriod(s string) (time.Duration, error) {
@@ -108,14 +229,6 @@ func parsePeriod(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid period %q: use e.g. 7d, 24h, 1h30m", s)
 	}
 	return d, nil
-}
-
-type avgResult struct {
-	Period  string  `json:"period"`
-	SolarKW float64 `json:"solar_kw"`
-	LoadKW  float64 `json:"load_kw"`
-	NetKW   float64 `json:"net_kw"`
-	Samples int     `json:"samples"`
 }
 
 func parseTimeArg(s string) (time.Time, error) {
@@ -148,135 +261,4 @@ func parseTimeRange(startStr, endStr string) (since, until time.Time, err error)
 		until = time.Now()
 	}
 	return
-}
-
-func averagePower(ctx context.Context, store Store, args avgArgs) (*mcp.CallToolResult, any, error) {
-	var since, until time.Time
-	var label string
-
-	if args.Start != "" || args.End != "" {
-		if args.Start == "" {
-			return nil, nil, fmt.Errorf("start is required when end is specified")
-		}
-		var err error
-		since, until, err = parseTimeRange(args.Start, args.End)
-		if err != nil {
-			return nil, nil, err
-		}
-		if args.End != "" {
-			label = args.Start + "/" + args.End
-		} else {
-			label = args.Start + "/now"
-		}
-	} else {
-		if args.Period == "" {
-			return nil, nil, fmt.Errorf("provide period (e.g. '24h') or start/end dates")
-		}
-		d, err := parsePeriod(args.Period)
-		if err != nil {
-			return nil, nil, err
-		}
-		until = time.Now()
-		since = until.Add(-d)
-		label = args.Period
-	}
-
-	avg, err := store.AveragePower(ctx, since, until)
-	if err != nil {
-		return nil, nil, err
-	}
-	if avg.Samples == 0 {
-		return nil, nil, fmt.Errorf("no readings in range %s", label)
-	}
-	data, err := json.Marshal(avgResult{
-		Period:  label,
-		SolarKW: avg.SolarKW,
-		LoadKW:  avg.LoadKW,
-		NetKW:   avg.NetKW,
-		Samples: avg.Samples,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
-}
-
-type energyDeltaResult struct {
-	Start    string  `json:"start"`
-	End      string  `json:"end"`
-	SolarKWh float64 `json:"solar_kwh"`
-	LoadKWh  float64 `json:"load_kwh"`
-	NetKWh   float64 `json:"net_kwh"`
-}
-
-func energyDelta(ctx context.Context, store Store, startStr, endStr string) (*mcp.CallToolResult, any, error) {
-	if startStr == "" {
-		return nil, nil, fmt.Errorf("start is required")
-	}
-	since, until, err := parseTimeRange(startStr, endStr)
-	if err != nil {
-		return nil, nil, err
-	}
-	delta, err := store.EnergyDelta(ctx, since, until)
-	if err != nil {
-		return nil, nil, err
-	}
-	data, err := json.Marshal(energyDeltaResult{
-		Start:    since.Format(time.RFC3339),
-		End:      until.Format(time.RFC3339),
-		SolarKWh: delta.SolarKWh,
-		LoadKWh:  delta.LoadKWh,
-		NetKWh:   delta.NetKWh,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
-}
-
-type deviceListResult struct {
-	Inverters []InverterDevice `json:"inverters"`
-	Aux       []AuxDevice      `json:"aux"`
-}
-
-func deviceList(ctx context.Context, store Store) (*mcp.CallToolResult, any, error) {
-	inverters, err := store.LatestInverters(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	aux, err := store.LatestAuxDevices(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(inverters)+len(aux) == 0 {
-		return nil, nil, fmt.Errorf("no device list available yet")
-	}
-	data, err := json.Marshal(deviceListResult{
-		Inverters: inverters,
-		Aux:       aux,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
-}
-
-func energySummary(ctx context.Context, store Store, staleThreshold time.Duration) (*mcp.CallToolResult, any, error) {
-	r, err := latestReading(ctx, store, staleThreshold)
-	if err != nil {
-		return nil, nil, err
-	}
-	data, err := json.Marshal(r.Energy())
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
-	}, nil, nil
 }

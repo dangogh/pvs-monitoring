@@ -7,165 +7,282 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-// toolsStore is a fake Store for tools tests.
-type toolsStore struct {
-	reading    *Reading
-	readingErr error
-	avg        PowerAvg
-	avgErr     error
+// fakeAPI is a stand-in for a running pvs-api.
+type fakeAPI struct {
+	current    CurrentReading
+	currentErr error
+	data       DataResponse
+	dataErr    error
+	health     PanelHealth
+	healthErr  error
+
+	gotSince, gotUntil time.Time
 }
 
-func (f *toolsStore) SaveReading(_ context.Context, _ *Reading) error { return nil }
-func (f *toolsStore) LatestReading(_ context.Context) (*Reading, error) {
-	return f.reading, f.readingErr
-}
-func (f *toolsStore) AveragePower(_ context.Context, _, _ time.Time) (PowerAvg, error) {
-	return f.avg, f.avgErr
-}
-func (f *toolsStore) EnergyDelta(_ context.Context, _, _ time.Time) (EnergyDelta, error) {
-	return EnergyDelta{}, nil
-}
-func (f *toolsStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]SeriesPoint, error) {
-	return nil, nil
-}
-func (f *toolsStore) CountReadings(_ context.Context) (int64, error)               { return 0, nil }
-func (f *toolsStore) EarliestReadingAt(_ context.Context) (time.Time, error)       { return time.Time{}, nil }
-func (f *toolsStore) SaveDevices(_ context.Context, _ []Device, _ time.Time) error { return nil }
-func (f *toolsStore) LatestInverters(_ context.Context) ([]InverterDevice, error)  { return nil, nil }
-func (f *toolsStore) InverterSeries(_ context.Context, _, _ time.Time) ([]InverterSeriesPoint, error) {
-	return nil, nil
-}
-func (f *toolsStore) LatestAuxDevices(_ context.Context) ([]AuxDevice, error)            { return nil, nil }
-func (f *toolsStore) OpenInverterOutage(_ context.Context, _ string, _ time.Time) error  { return nil }
-func (f *toolsStore) CloseInverterOutage(_ context.Context, _ string, _ time.Time) error { return nil }
-func (f *toolsStore) ListOpenInverterOutages(_ context.Context) ([]string, error)        { return nil, nil }
-func (f *toolsStore) SaveMaintenanceEvent(_ context.Context, _ MaintenanceEvent) (int64, error) {
-	return 0, nil
-}
-func (f *toolsStore) ListMaintenanceEvents(_ context.Context) ([]MaintenanceEvent, error) {
-	return nil, nil
-}
-func (f *toolsStore) UpdateMaintenanceEvent(_ context.Context, _ MaintenanceEvent) error { return nil }
-func (f *toolsStore) DeleteMaintenanceEvent(_ context.Context, _ int64) error            { return nil }
-func (f *toolsStore) Settings(_ context.Context) (map[string]string, error)              { return nil, nil }
-func (f *toolsStore) SetSetting(_ context.Context, _, _ string) error                    { return nil }
-func (f *toolsStore) Checkpoint(_ context.Context) error                                 { return nil }
-func (f *toolsStore) Close() error                                                       { return nil }
-
-func freshReading(r *Reading) *Reading {
-	r.ReceivedAt = time.Now()
-	return r
+func (f *fakeAPI) Current(context.Context) (CurrentReading, error) {
+	return f.current, f.currentErr
 }
 
-func staleReading(r *Reading) *Reading {
-	r.ReceivedAt = time.Now().Add(-time.Minute)
-	return r
+func (f *fakeAPI) Data(_ context.Context, since, until time.Time) (DataResponse, error) {
+	f.gotSince, f.gotUntil = since, until
+	return f.data, f.dataErr
 }
 
-func TestCurrentPower(t *testing.T) {
-	ts := time.Unix(1779680954, 0)
-	tests := []struct {
-		name           string
-		reading        *Reading
-		staleThreshold time.Duration
-		wantErr        bool
-		want           PowerJSON
-	}{
-		{
-			name:    "no reading",
-			reading: nil,
-			wantErr: true,
-		},
-		{
-			name:           "stale reading",
-			reading:        staleReading(&Reading{Time: ts}),
-			staleThreshold: 5 * time.Second,
-			wantErr:        true,
-		},
-		{
-			name:           "fresh reading",
-			reading:        freshReading(&Reading{Time: ts, SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92}),
-			staleThreshold: 5 * time.Second,
-			want:           PowerJSON{Time: ts.Format(time.RFC3339), SolarKW: 0.02, LoadKW: 3.94, NetKW: 3.92},
-		},
+func (f *fakeAPI) PanelHealth(context.Context) (PanelHealth, error) {
+	return f.health, f.healthErr
+}
+
+// decode unmarshals a tool result's text content into v.
+func decode(t *testing.T, result *mcp.CallToolResult, v any) {
+	t.Helper()
+	require.NotNil(t, result)
+	text := result.Content[0].(*mcp.TextContent).Text
+	require.NoError(t, json.Unmarshal([]byte(text), v))
+}
+
+func TestGetStatusFresh(t *testing.T) {
+	api := &fakeAPI{
+		current: CurrentReading{SolarKW: 4.2, LoadKW: 1.8, NetKW: 2.4, UpdatedAt: time.Now().Add(-3 * time.Second)},
+		health:  PanelHealth{State: PanelHealthOK, Total: 48, Producing: 48},
 	}
 
+	result, _, err := getStatus(context.Background(), api, time.Minute)
+	require.NoError(t, err)
+
+	var got statusResult
+	decode(t, result, &got)
+	assert.Equal(t, 4.2, got.SolarKW)
+	assert.False(t, got.Stale)
+	assert.LessOrEqual(t, got.AgeSeconds, int64(5))
+	require.NotNil(t, got.PanelHealth)
+	assert.Equal(t, PanelHealthOK, got.PanelHealth.State)
+}
+
+// A stale reading is data, not a failure: the caller needs the last known
+// values and the age in order to tell "the monitor stopped" from "the host is
+// down", which is what an error would mean.
+func TestGetStatusStaleIsNotAnError(t *testing.T) {
+	api := &fakeAPI{
+		current: CurrentReading{SolarKW: 3.1, UpdatedAt: time.Now().Add(-2 * time.Hour)},
+	}
+
+	result, _, err := getStatus(context.Background(), api, time.Minute)
+	require.NoError(t, err)
+
+	var got statusResult
+	decode(t, result, &got)
+	assert.True(t, got.Stale)
+	assert.Equal(t, 3.1, got.SolarKW)
+	assert.InDelta(t, 7200, got.AgeSeconds, 5)
+}
+
+func TestGetStatusUnreachableIsAnError(t *testing.T) {
+	api := &fakeAPI{currentErr: ErrUnreachable}
+	_, _, err := getStatus(context.Background(), api, time.Minute)
+	assert.ErrorIs(t, err, ErrUnreachable)
+}
+
+// Panel health is supplementary; losing it must not cost the caller the power
+// reading it also asked for.
+func TestGetStatusSurvivesPanelHealthFailure(t *testing.T) {
+	api := &fakeAPI{
+		current:   CurrentReading{SolarKW: 4.2, UpdatedAt: time.Now()},
+		healthErr: ErrNoData,
+	}
+
+	result, _, err := getStatus(context.Background(), api, time.Minute)
+	require.NoError(t, err)
+
+	var got statusResult
+	decode(t, result, &got)
+	assert.Equal(t, 4.2, got.SolarKW)
+	assert.Nil(t, got.PanelHealth)
+}
+
+func TestGetHistoryPeriod(t *testing.T) {
+	api := &fakeAPI{data: DataResponse{
+		Summary: SummaryData{SolarKWh: 31.5, LoadKWh: 20.0, NetKWh: -11.5, AvgSolarKW: 1.3},
+		Series:  []SeriesJSON{{TimeMS: 1756500000000}},
+	}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "7d"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	assert.Equal(t, 31.5, got.SolarKWh)
+	assert.Equal(t, 1.3, got.AvgSolarKW)
+	assert.Empty(t, got.Warnings)
+	// The series is large, so it is omitted unless asked for.
+	assert.Empty(t, got.Series)
+	assert.InDelta(t, 7*24*time.Hour, api.gotUntil.Sub(api.gotSince), float64(time.Second))
+}
+
+func TestGetHistorySeriesOnRequest(t *testing.T) {
+	api := &fakeAPI{data: DataResponse{Series: []SeriesJSON{{TimeMS: 1756500000000}}}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "1d", Series: true})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	assert.Len(t, got.Series, 1)
+}
+
+func TestGetHistoryEchoesResolvedRange(t *testing.T) {
+	api := &fakeAPI{}
+	result, _, err := getHistory(context.Background(), api, historyArgs{Start: "2026-08-23", End: "2026-08-23"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	// A date-only end covers the whole day, and the absolute range comes back
+	// so a timezone-shifted boundary is visible rather than silent.
+	assert.Equal(t, api.gotSince.Format(time.RFC3339), got.Start)
+	assert.Equal(t, api.gotUntil.Format(time.RFC3339), got.End)
+	assert.InDelta(t, 24*time.Hour, api.gotUntil.Sub(api.gotSince), float64(time.Second))
+}
+
+// Cumulative counters are assumed to only climb; firmware has broken that
+// before, and a negative total must not read as a real figure.
+func TestGetHistoryWarnsOnNegativeEnergy(t *testing.T) {
+	api := &fakeAPI{data: DataResponse{Summary: SummaryData{SolarKWh: -4.2}}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "1d"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	assert.Len(t, got.Warnings, 1)
+	assert.Contains(t, got.Warnings[0], "backwards")
+}
+
+func TestGetHistoryWarnsWhenRangePredatesData(t *testing.T) {
+	earliest := time.Now().Add(-48 * time.Hour)
+	api := &fakeAPI{data: DataResponse{EarliestAt: &earliest}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "30d"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	assert.Len(t, got.Warnings, 1)
+	assert.Contains(t, got.Warnings[0], "earliest recorded reading")
+	assert.Equal(t, earliest.Format(time.RFC3339), got.EarliestAt)
+}
+
+// The two warning conditions are independent, so both must survive. A single
+// warning field silently dropped the first one, which is the failure mode the
+// warnings exist to prevent.
+func TestGetHistoryReportsEveryWarning(t *testing.T) {
+	earliest := time.Now().Add(-48 * time.Hour)
+	api := &fakeAPI{data: DataResponse{
+		EarliestAt: &earliest,
+		Summary:    SummaryData{SolarKWh: -4.2},
+	}}
+
+	result, _, err := getHistory(context.Background(), api, historyArgs{Period: "30d"})
+	require.NoError(t, err)
+
+	var got historyResult
+	decode(t, result, &got)
+	require.Len(t, got.Warnings, 2)
+	assert.Contains(t, got.Warnings[0], "earliest recorded reading")
+	assert.Contains(t, got.Warnings[1], "backwards")
+}
+
+func TestGetHistoryBadArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args historyArgs
+	}{
+		{"no range at all", historyArgs{}},
+		{"end without start", historyArgs{End: "2026-08-23"}},
+		{"unparseable period", historyArgs{Period: "fortnight"}},
+		{"unparseable start", historyArgs{Start: "last tuesday"}},
+		{"reversed range", historyArgs{Start: "2026-08-30", End: "2026-08-01"}},
+		{"zero-length range", historyArgs{Start: "2026-08-30T12:00:00-07:00", End: "2026-08-30T12:00:00-07:00"}},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &toolsStore{reading: tt.reading}
-			result, _, err := currentPower(context.Background(), store, tt.staleThreshold)
-			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			var got PowerJSON
-			text := result.Content[0].(*mcp.TextContent).Text
-			if err := json.Unmarshal([]byte(text), &got); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %+v, want %+v", got, tt.want)
-			}
+			_, _, err := getHistory(context.Background(), &fakeAPI{}, tt.args)
+			assert.Error(t, err)
 		})
 	}
 }
 
-func TestEnergySummary(t *testing.T) {
-	ts := time.Unix(1779680954, 0)
-	tests := []struct {
-		name           string
-		reading        *Reading
-		staleThreshold time.Duration
-		wantErr        bool
-		want           EnergyJSON
-	}{
-		{
-			name:    "no reading",
-			reading: nil,
-			wantErr: true,
-		},
-		{
-			name:           "stale reading",
-			reading:        staleReading(&Reading{Time: ts}),
-			staleThreshold: 5 * time.Second,
-			wantErr:        true,
-		},
-		{
-			name:           "fresh reading",
-			reading:        freshReading(&Reading{Time: ts, SolarKWh: 94400.05, LoadKWh: 65023.6, NetKWh: -29376.45}),
-			staleThreshold: 5 * time.Second,
-			want:           EnergyJSON{Time: ts.Format(time.RFC3339), SolarKWh: 94400.05, LoadKWh: 65023.6, NetKWh: -29376.45},
-		},
-	}
+func TestPanelHealthTool(t *testing.T) {
+	api := &fakeAPI{health: PanelHealth{
+		State:        PanelHealthDegraded,
+		NotProducing: []string{"E00121", "E00122"},
+		Total:        48,
+		Producing:    46,
+	}}
 
+	result, _, err := panelHealth(context.Background(), api)
+	require.NoError(t, err)
+
+	var got PanelHealth
+	decode(t, result, &got)
+	assert.Equal(t, PanelHealthDegraded, got.State)
+	assert.Equal(t, []string{"E00121", "E00122"}, got.NotProducing)
+}
+
+// Observed against solarwatch, which runs pvs-api v1.13.1: the endpoint 404s
+// because that version predates it. The message must point at the version, not
+// at the network.
+func TestPanelHealthToolOnOldServer(t *testing.T) {
+	_, _, err := panelHealth(context.Background(), &fakeAPI{healthErr: ErrUnsupported})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too old")
+	assert.NotContains(t, err.Error(), "unreachable")
+}
+
+// get_status must still answer on a server too old for panel health.
+func TestGetStatusOnServerWithoutPanelHealth(t *testing.T) {
+	api := &fakeAPI{
+		current:   CurrentReading{SolarKW: 3.32, UpdatedAt: time.Now()},
+		healthErr: ErrUnsupported,
+	}
+	result, _, err := getStatus(context.Background(), api, time.Minute)
+	require.NoError(t, err)
+
+	var got statusResult
+	decode(t, result, &got)
+	assert.Equal(t, 3.32, got.SolarKW)
+	assert.Nil(t, got.PanelHealth)
+}
+
+func TestPanelHealthToolUnreachable(t *testing.T) {
+	_, _, err := panelHealth(context.Background(), &fakeAPI{healthErr: ErrUnreachable})
+	assert.ErrorIs(t, err, ErrUnreachable)
+}
+
+func TestParsePeriod(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{in: "7d", want: 7 * 24 * time.Hour},
+		{in: "24h", want: 24 * time.Hour},
+		{in: "1h30m", want: 90 * time.Minute},
+		{in: "xd", wantErr: true},
+		{in: "nonsense", wantErr: true},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := &toolsStore{reading: tt.reading}
-			result, _, err := energySummary(context.Background(), store, tt.staleThreshold)
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := parsePeriod(tt.in)
 			if tt.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
-				}
+				assert.Error(t, err)
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			var got EnergyJSON
-			text := result.Content[0].(*mcp.TextContent).Text
-			if err := json.Unmarshal([]byte(text), &got); err != nil {
-				t.Fatalf("unmarshal: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %+v, want %+v", got, tt.want)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
