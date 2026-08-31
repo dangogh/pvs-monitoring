@@ -2,11 +2,14 @@ package pvs
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 )
@@ -41,15 +44,77 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+// ClientOption configures a Client.
+type ClientOption func(*clientConfig) error
+
+type clientConfig struct {
+	tls *tls.Config
+}
+
+// WithInsecureTLS disables certificate verification. The monitoring hosts serve
+// pvs-api under self-signed certificates, so this is how you reach them over
+// HTTPS without distributing a CA. It removes any guarantee that the host is
+// who it claims to be; prefer WithCACert where the certificate is available.
+func WithInsecureTLS() ClientOption {
+	return func(c *clientConfig) error {
+		if c.tls == nil {
+			c.tls = &tls.Config{} //nolint:gosec // MinVersion set below.
+		}
+		c.tls.MinVersion = tls.VersionTLS12
+		c.tls.InsecureSkipVerify = true //nolint:gosec // deliberate; see doc comment.
+		return nil
+	}
+}
+
+// WithCACert trusts the PEM certificate(s) at path in addition to nothing else,
+// which is how to reach a self-signed pvs-api while still verifying it is the
+// host you meant.
+//
+// This requires a certificate carrying a subjectAltName. Go has rejected
+// CN-only certificates since 1.15 no matter what is in the trust store, so a
+// certificate generated without SANs fails here even when supplied as its own
+// CA — as the ones on the monitoring hosts do today. Until those are reissued
+// with SANs, HTTPS access needs WithInsecureTLS.
+func WithCACert(path string) ClientOption {
+	return func(c *clientConfig) error {
+		pem, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read CA cert: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return fmt.Errorf("no certificates found in %s", path)
+		}
+		if c.tls == nil {
+			c.tls = &tls.Config{} //nolint:gosec // MinVersion set below.
+		}
+		c.tls.MinVersion = tls.VersionTLS12
+		c.tls.RootCAs = pool
+		return nil
+	}
+}
+
 // NewClient returns a Client for the pvs-api at baseURL (e.g.
 // "http://solar.local"). The timeout is short: every call backs a synchronous
 // tool invocation, and a caller waiting on a dead host wants to be told so
 // rather than made to wait.
-func NewClient(baseURL string) *Client {
-	return &Client{
-		BaseURL: baseURL,
-		HTTP:    &http.Client{Timeout: 10 * time.Second},
+func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
+	var cfg clientConfig
+	for _, opt := range opts {
+		if err := opt(&cfg); err != nil {
+			return nil, err
+		}
 	}
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	if cfg.tls != nil {
+		// NextProtos pins HTTP/1.1. Go's HTTP/2 transport hangs against some
+		// TLS configurations here, the same hazard DevicePoller works around.
+		cfg.tls.NextProtos = []string{"http/1.1"}
+		httpClient.Transport = &http.Transport{TLSClientConfig: cfg.tls}
+	}
+
+	return &Client{BaseURL: baseURL, HTTP: httpClient}, nil
 }
 
 func (c *Client) get(ctx context.Context, path string, query url.Values, out any) error {

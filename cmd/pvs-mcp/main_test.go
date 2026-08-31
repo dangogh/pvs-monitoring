@@ -50,3 +50,20 @@ func TestRunInvalidConfigReturnsError(t *testing.T) {
 	err := run([]string{"--config", p}, io.Discard, noopTransport{})
 	assert.Error(t, err)
 }
+
+// -insecure and -ca both configure TLS trust; taking both would leave which one
+// wins implicit, and it would be the unsafe one.
+func TestRunRejectsInsecureWithCA(t *testing.T) {
+	err := run([]string{"--insecure", "--ca", "/tmp/ca.pem"}, io.Discard, noopTransport{})
+	assert.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestRunRejectsUnreadableCA(t *testing.T) {
+	err := run([]string{"--ca", "/nonexistent/ca.pem"}, io.Discard, noopTransport{})
+	assert.ErrorContains(t, err, "read CA cert")
+}
+
+func TestRunAcceptsNameAndInsecure(t *testing.T) {
+	err := run([]string{"--name", "pvs-solarwatch", "--api", "https://127.0.0.1:1", "--insecure"}, io.Discard, noopTransport{})
+	assert.NoError(t, err)
+}

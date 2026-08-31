@@ -59,6 +59,7 @@ SQLite reads only              embeds static/index.html
 ### Key design points
 
 - `Monitor` and `DevicePoller` are injectable via interfaces (`dialer`, `httpDoer`) for testing without real network connections.
+- `pvs-mcp` takes `-api` (base URL), `-name` (server name announced to the MCP client, so one instance per array is distinguishable), and `-insecure`/`-ca` for TLS. The monitoring hosts serve `pvs-api` under self-signed CN-only certificates with no SANs, which Go rejects even when supplied via `-ca`; until those are reissued, HTTPS needs `-insecure`, or use the plain-HTTP `pvs-ui` proxy on port 80.
 - Three MCP tools, all reading through `API`: `get_status` (current power + staleness + panel health), `get_history` (energy/average power over a range), `get_panel_health`.
 - MCP failures are split deliberately. A tool errors only when `pvs-api` could not be reached (`ErrUnreachable`); a reading that is merely old returns normally with `stale` and `age_seconds`. The distinction is diagnostic: an error means the host or network is down, a stale result means the host is fine and the PVS6 link is not. `get_status` also degrades rather than fails if panel health alone is unavailable.
 - `get_history` flags results that should not be taken at face value: a range starting before the earliest recorded reading, and negative energy totals (cumulative counters are assumed monotonic, and firmware has broken that assumption before).

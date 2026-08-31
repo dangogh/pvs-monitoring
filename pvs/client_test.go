@@ -2,15 +2,26 @@ package pvs
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestClient builds a Client, failing the test if construction errors.
+func newTestClient(t *testing.T, baseURL string, opts ...ClientOption) *Client {
+	t.Helper()
+	c, err := NewClient(baseURL, opts...)
+	require.NoError(t, err)
+	return c
+}
 
 func TestClientCurrent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +30,7 @@ func TestClientCurrent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	got, err := NewClient(srv.URL).Current(context.Background())
+	got, err := newTestClient(t, srv.URL).Current(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 4.2, got.SolarKW)
 	assert.Equal(t, 2.4, got.NetKW)
@@ -34,7 +45,7 @@ func TestClientNoDataIsNotUnreachable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL).Current(context.Background())
+	_, err := newTestClient(t, srv.URL).Current(context.Background())
 	assert.ErrorIs(t, err, ErrNoData)
 	assert.NotErrorIs(t, err, ErrUnreachable)
 }
@@ -47,7 +58,7 @@ func TestClientNotFoundIsUnsupported(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL).PanelHealth(context.Background())
+	_, err := newTestClient(t, srv.URL).PanelHealth(context.Background())
 	assert.ErrorIs(t, err, ErrUnsupported)
 	assert.NotErrorIs(t, err, ErrUnreachable)
 }
@@ -58,7 +69,7 @@ func TestClientUnreachable(t *testing.T) {
 	}))
 	srv.Close() // nothing is listening
 
-	_, err := NewClient(srv.URL).PanelHealth(context.Background())
+	_, err := newTestClient(t, srv.URL).PanelHealth(context.Background())
 	assert.ErrorIs(t, err, ErrUnreachable)
 }
 
@@ -68,7 +79,7 @@ func TestClientServerErrorIsUnreachable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL).PanelHealth(context.Background())
+	_, err := newTestClient(t, srv.URL).PanelHealth(context.Background())
 	assert.ErrorIs(t, err, ErrUnreachable)
 }
 
@@ -82,7 +93,7 @@ func TestClientDataSendsUnixRange(t *testing.T) {
 
 	since := time.Unix(1756500000, 0)
 	until := time.Unix(1756600000, 0)
-	got, err := NewClient(srv.URL).Data(context.Background(), since, until)
+	got, err := newTestClient(t, srv.URL).Data(context.Background(), since, until)
 	require.NoError(t, err)
 	assert.Equal(t, "since=1756500000&until=1756600000", gotQuery)
 	assert.Equal(t, 31.5, got.Summary.SolarKWh)
@@ -94,6 +105,49 @@ func TestClientDecodeErrorIsUnreachable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := NewClient(srv.URL).Current(context.Background())
+	_, err := newTestClient(t, srv.URL).Current(context.Background())
 	assert.True(t, errors.Is(err, ErrUnreachable))
+}
+
+// The monitoring hosts serve pvs-api under self-signed certificates, so
+// verification has to be defeatable — otherwise HTTPS access is impossible
+// without distributing a CA.
+func TestClientInsecureTLS(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"solar_kw":3.2}`))
+	}))
+	defer srv.Close()
+
+	// Without the option, the self-signed certificate is rejected.
+	_, err := newTestClient(t, srv.URL).Current(context.Background())
+	assert.ErrorIs(t, err, ErrUnreachable)
+
+	got, err := newTestClient(t, srv.URL, WithInsecureTLS()).Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 3.2, got.SolarKW)
+}
+
+func TestClientWithCACert(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"solar_kw":4.4}`))
+	}))
+	defer srv.Close()
+
+	pemPath := filepath.Join(t.TempDir(), "ca.pem")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	require.NoError(t, os.WriteFile(pemPath, pemBytes, 0o600))
+
+	got, err := newTestClient(t, srv.URL, WithCACert(pemPath)).Current(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 4.4, got.SolarKW)
+}
+
+func TestClientWithCACertErrors(t *testing.T) {
+	_, err := NewClient("https://example.invalid", WithCACert("/nonexistent/ca.pem"))
+	assert.Error(t, err)
+
+	junk := filepath.Join(t.TempDir(), "junk.pem")
+	require.NoError(t, os.WriteFile(junk, []byte("not a certificate"), 0o600))
+	_, err = NewClient("https://example.invalid", WithCACert(junk))
+	assert.ErrorContains(t, err, "no certificates found")
 }
