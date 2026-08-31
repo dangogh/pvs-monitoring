@@ -34,10 +34,14 @@ if [ "$1" = "configure" ]; then
 
     # Generate self-signed TLS certificate if it doesn't exist
     if [ ! -f /var/lib/pvs-monitor/server.crt ] || [ ! -f /var/lib/pvs-monitor/server.key ]; then
+        # subjectAltName is required, not decorative: Go (and modern TLS clients
+        # generally) have refused to read the hostname from CN since Go 1.15, so
+        # a cert without SANs cannot be verified even when trusted explicitly.
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
             -days 3650 -nodes \
             -keyout /var/lib/pvs-monitor/server.key -out /var/lib/pvs-monitor/server.crt \
-            -subj "/CN=$(hostname)" 2>/dev/null || true
+            -subj "/CN=$(hostname)" \
+            -addext "subjectAltName=DNS:$(hostname),DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1" 2>/dev/null || true
     fi
     # Fix TLS file ownership/mode on every install, not only when we generated
     # them. A cert pre-seeded or created out-of-band (e.g. root:root 0600) would
