@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -29,6 +31,12 @@ var ErrNoData = errors.New("no data available yet")
 // same reason ErrNoData is: the host is healthy and the fix is to upgrade it,
 // not to go looking at the network.
 var ErrUnsupported = errors.New("endpoint not supported by this pvs-api")
+
+// maxResponseBytes caps how much of a response body is decoded. A full-detail
+// series over a long range is the largest legitimate payload and stays far
+// under this.
+// It is a var, not a const, only so tests can shrink it.
+var maxResponseBytes int64 = 64 << 20 // 64 MiB
 
 // API is the read surface the MCP tools need. Client implements it against a
 // running pvs-api; tests supply a fake.
@@ -99,6 +107,21 @@ func WithCACert(path string) ClientOption {
 // tool invocation, and a caller waiting on a dead host wants to be told so
 // rather than made to wait.
 func NewClient(baseURL string, opts ...ClientOption) (*Client, error) {
+	// Validate here rather than on first use: a typo in -api should fail while
+	// someone is looking at the command line, not several minutes later inside
+	// a tool call that reports it as an unreachable host.
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid api URL %q: %w", baseURL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("invalid api URL %q: need an http:// or https:// base URL", baseURL)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("invalid api URL %q: no host", baseURL)
+	}
+
 	var cfg clientConfig
 	for _, opt := range opts {
 		if err := opt(&cfg); err != nil {
@@ -132,6 +155,10 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// A long series is large but bounded; anything past this is a wrong or
+	// hostile endpoint, and decoding it would consume memory unboundedly.
+	body := io.LimitReader(resp.Body, maxResponseBytes)
+
 	switch {
 	case resp.StatusCode == http.StatusServiceUnavailable:
 		// The API answered; it simply has nothing yet. Not an outage.
@@ -142,7 +169,7 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 		return fmt.Errorf("%w: %s returned %s", ErrUnreachable, path, resp.Status)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := json.NewDecoder(body).Decode(out); err != nil {
 		return fmt.Errorf("%w: decoding %s: %v", ErrUnreachable, path, err)
 	}
 	return nil

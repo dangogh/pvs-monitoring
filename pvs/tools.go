@@ -191,7 +191,18 @@ func resolveRange(args historyArgs) (since, until time.Time, err error) {
 		if args.Start == "" {
 			return time.Time{}, time.Time{}, fmt.Errorf("start is required when end is specified")
 		}
-		return parseTimeRange(args.Start, args.End)
+		since, until, err = parseTimeRange(args.Start, args.End)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		// A reversed range is almost certainly a mistake, and pvs-api answers it
+		// with zeroes rather than an error — which reads as "no production" and
+		// is worse than being told the arguments were wrong.
+		if !until.After(since) {
+			return time.Time{}, time.Time{}, fmt.Errorf("end (%s) must be after start (%s)",
+				until.Format(time.RFC3339), since.Format(time.RFC3339))
+		}
+		return since, until, nil
 	}
 	if args.Period == "" {
 		return time.Time{}, time.Time{}, fmt.Errorf("provide period (e.g. '24h') or start/end dates")

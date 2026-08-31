@@ -151,3 +151,54 @@ func TestClientWithCACertErrors(t *testing.T) {
 	_, err = NewClient("https://example.invalid", WithCACert(junk))
 	assert.ErrorContains(t, err, "no certificates found")
 }
+
+// A typo in -api should fail while someone is looking at the command line, not
+// several minutes later as an "unreachable host" inside a tool call.
+func TestNewClientRejectsBadURLs(t *testing.T) {
+	for _, bad := range []string{"solar.local", "ftp://solar.local", "http://", ""} {
+		t.Run(bad, func(t *testing.T) {
+			_, err := NewClient(bad)
+			assert.ErrorContains(t, err, "invalid api URL")
+		})
+	}
+}
+
+// A trailing slash would otherwise produce "//api/current".
+func TestNewClientTrimsTrailingSlash(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv.URL+"/")
+	require.NoError(t, func() error { _, err := c.Current(context.Background()); return err }())
+	assert.Equal(t, "/api/current", gotPath)
+}
+
+// An endpoint answering with an unbounded stream must not be decoded into
+// unbounded memory.
+func TestClientCapsResponseSize(t *testing.T) {
+	orig := maxResponseBytes
+	maxResponseBytes = 512
+	t.Cleanup(func() { maxResponseBytes = orig })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Valid JSON prefix, then an array far longer than the cap allows.
+		_, _ = w.Write([]byte(`{"series":[`))
+		chunk := []byte(`{"t":1,"s":1.0,"l":1.0},`)
+		for range 200 {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	// Decoding stops at the cap, so the truncated body fails to parse rather
+	// than being consumed in full.
+	_, err := newTestClient(t, srv.URL).Data(context.Background(), time.Unix(0, 0), time.Unix(1, 0))
+	assert.ErrorIs(t, err, ErrUnreachable)
+	assert.ErrorContains(t, err, "decoding")
+}

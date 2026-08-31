@@ -204,6 +204,8 @@ func TestGetHistoryBadArgs(t *testing.T) {
 		{"end without start", historyArgs{End: "2026-08-23"}},
 		{"unparseable period", historyArgs{Period: "fortnight"}},
 		{"unparseable start", historyArgs{Start: "last tuesday"}},
+		{"reversed range", historyArgs{Start: "2026-08-30", End: "2026-08-01"}},
+		{"zero-length range", historyArgs{Start: "2026-08-30T12:00:00-07:00", End: "2026-08-30T12:00:00-07:00"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
