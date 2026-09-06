@@ -90,15 +90,27 @@ describe('peerRatio', () => {
     expect(peerRatio(at[0], ctx, {}).dark).toBe(false);
   });
 
-  it('reports dark when the panel\'s own group median is zero', () => {
-    // The whole group is out (a tripped branch) while the array still produces:
-    // there is no meaningful denominator, so no ratio is claimed.
+  it('reports a whole dead group rather than hiding it', () => {
+    // A tripped branch takes its group's median to zero with it, so the ratio
+    // has no denominator. Replaying the 2026-08-23 outage, treating that as
+    // "no data" hid 5 of the 12 dropped panels: the group most affected was
+    // the one that went silent. It is the most severe state, not the absence
+    // of one.
     const panels = [p('A1', 1.0), p('A2', 1.1), p('A3', 0.9),
                     p('B1', 0), p('B2', 0), p('B3', 0)];
     const ctx = peerMedians(panels, groups);
     const r = peerRatio(p('B1', 0), ctx, groups);
-    expect(r.dark).toBe(true);
-    expect(r.ratio).toBeNaN();
+    expect(r.dark).toBe(false);
+    expect(r.groupDead).toBe(true);
+    expect(isLow(r)).toBe(true);
+    expect(ratioTitle(r)).toBe('every panel in pm is offline');
+  });
+
+  it('counts a dead group among the underperformers', () => {
+    const panels = [p('A1', 1.0), p('A2', 1.1), p('A3', 0.9),
+                    p('B1', 0), p('B2', 0), p('B3', 0)];
+    expect(underperformers(panels, groups).map(d => d.serial).sort())
+      .toEqual(['B1', 'B2', 'B3']);
   });
 });
 

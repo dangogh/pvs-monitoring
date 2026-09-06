@@ -16,7 +16,13 @@
 
 // Fleet median below this (kW) means there is not enough light to tell a fault
 // from nightfall — every panel is near zero and the ratio is noise.
-export const LOW_LIGHT_KW = 0.10;
+//
+// Chosen by replaying 27 days (2026-08-10..09-05) at 10-minute cadence: at 0.10
+// the shoulder hours produced 34 false alarms, every one of them around 08:30
+// when shadows sweep across a group and its members legitimately disagree. 0.15
+// removes all of them and still leaves ~79% of the previously-usable daylight
+// ticks, with the 08-23 branch outage detected at the same minute.
+export const LOW_LIGHT_KW = 0.15;
 
 // Below this fraction of the peer median a panel is flagged as underperforming.
 export const UNDERPERFORM_RATIO = 0.60;
@@ -65,7 +71,11 @@ export function peerRatio(device, ctx, serialToGroup = {}) {
   // usable denominator. Falls through to the "no comparison" rendering.
   if ((ctx.counts?.[group] ?? 0) < MIN_PEERS) return { ratio: NaN, dark: false, group };
   const med = ctx.medians[group];
-  if (!(med > 0)) return { ratio: NaN, dark: true, group };
+  // A group median of zero while the array is producing means the whole group
+  // is out — a tripped branch, the most severe thing this view can show. The
+  // median cannot express it (it has followed the group to zero), so report it
+  // directly instead of rendering "no data" over an entire dead branch.
+  if (!(med > 0)) return { ratio: 0, dark: false, group, groupDead: true };
   return { ratio: device.power_kw / med, dark: false, group };
 }
 
@@ -96,6 +106,7 @@ export function formatRatio({ ratio, dark }) {
 export function ratioTitle(r) {
   if (r.dark) return 'too dark to compare';
   if (!Number.isFinite(r.ratio)) return `too few peers in ${r.group} to compare`;
+  if (r.groupDead) return `every panel in ${r.group} is offline`;
   return `${formatRatio(r)} of ${r.group} median`;
 }
 
@@ -106,5 +117,6 @@ export function ratioTitle(r) {
 export function ratioSrText(r, threshold = UNDERPERFORM_RATIO) {
   if (r.dark) return 'too dark to compare';
   if (!Number.isFinite(r.ratio)) return 'too few peers to compare';
+  if (r.groupDead) return `, every panel in ${r.group} is offline`;
   return ` of ${r.group} median` + (isLow(r, threshold) ? ', underperforming' : '');
 }
