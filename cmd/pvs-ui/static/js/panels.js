@@ -1,6 +1,7 @@
 'use strict';
 
 import { fmt1 } from './display.js';
+import { formatRatio, LOW_LIGHT_KW, peerMedians, peerRatio, ratioTitle, UNDERPERFORM_RATIO } from './peers.js';
 import { state, PANELS_TTL_MS } from './state.js';
 
 export async function fetchDevices() {
@@ -30,18 +31,24 @@ export async function loadPanels() {
   } catch (e) {
     if (state.panelsData.length === 0)
       document.getElementById('panels-tbody').innerHTML =
-        '<tr><td colspan="8" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
+        '<tr><td colspan="9" style="text-align:center;color:var(--muted)">Error: ' + e.message + '</td></tr>';
   } finally {
     overlay?.remove();
   }
 }
 
 export function renderPanels() {
+  const ctx = peerMedians(state.panelsData, state.serialToGroup);
+  const relOf = d => peerRatio(d, ctx, state.serialToGroup);
+
   const cols = {
     label:        d => state.serialToLabel[d.serial] || '',
     serial:       d => d.serial,
     state:        d => d.state_descr,
     power_kw:     d => d.power_kw,
+    // Sort incomparable panels to the end rather than mixing NaN into the
+    // comparator, where it would make the sort order depend on input order.
+    rel:          d => { const r = relOf(d); return Number.isFinite(r.ratio) ? r.ratio : Infinity; },
     today_kwh:    d => d.today_kwh,
     lifetime_kwh: d => d.lifetime_kwh,
     voltage_v:    d => d.voltage_v,
@@ -63,17 +70,20 @@ export function renderPanels() {
                      : 'state-other';
     const expanded = state.expandedSerials.has(d.serial);
     const label = state.serialToLabel[d.serial] || '—';
+    const rel = relOf(d);
+    const low = !rel.dark && Number.isFinite(rel.ratio) && rel.ratio < UNDERPERFORM_RATIO;
     rows.push(`<tr class="panel-row${expanded ? ' expanded' : ''}" data-serial="${d.serial}">
       <td><button type="button" class="row-toggle" aria-expanded="${expanded}" aria-controls="detail-${d.serial}">${label}</button></td>
       <td class="${stateClass}" style="max-width:6rem;overflow:hidden;text-overflow:ellipsis">${d.state_descr}</td>
       <td>${d.serial}</td>
       <td>${fmt1(d.power_kw)}</td>
+      <td class="${low ? 'rel-low' : ''}" title="${ratioTitle(rel)}">${formatRatio(rel)}</td>
       <td>${fmt1(d.today_kwh)}</td>
       <td>${fmt1(d.lifetime_kwh)}</td>
       <td>${fmt1(d.voltage_v)}</td>
       <td>${fmt1(d.temp_c)}</td>
     </tr>`);
-    if (expanded) rows.push(detailRow(d));
+    if (expanded) rows.push(detailRow(d, rel));
   });
   tbody.innerHTML = rows.join('');
 
@@ -88,6 +98,7 @@ export function renderPanels() {
       <td></td>
       <td></td>
       ${ftd('total', fmt1(sum(d => d.power_kw)))}
+      ${relFoot(ctx, relOf)}
       ${ftd('total', fmt1(sum(d => d.today_kwh)))}
       ${ftd('total', fmt1(sum(d => d.lifetime_kwh)))}
       ${ftd('avg', fmt1(avg(d => d.voltage_v)))}
@@ -106,10 +117,25 @@ export function renderPanels() {
   });
 }
 
-export function detailRow(d) {
+// Footer cell for the peer-ratio column: how many panels are below the
+// underperformance threshold, or an explicit low-light state.
+function relFoot(ctx, relOf) {
+  const cell = (label, val) =>
+    `<td><span style="color:var(--muted);font-weight:400;margin-right:0.3em;font-size:0.72rem">${label}</span>${val}</td>`;
+  if (!(ctx.fleet >= LOW_LIGHT_KW)) return cell('', 'too dark');
+  const low = state.panelsData.filter(d => {
+    const r = relOf(d);
+    return !r.dark && Number.isFinite(r.ratio) && r.ratio < UNDERPERFORM_RATIO;
+  }).length;
+  return cell('low', String(low));
+}
+
+export function detailRow(d, rel) {
   const fields = [
     { label: 'State',         value: d.state_descr,          unit: ''    },
     { label: 'Power',         value: fmt1(d.power_kw),        unit: 'kW'  },
+    { label: 'vs peers',      value: rel ? formatRatio(rel) : '—',
+      unit: rel && !rel.dark ? `of ${rel.group}` : '' },
     { label: 'Today',         value: fmt1(d.today_kwh),       unit: 'kWh' },
     { label: 'Current',       value: fmt1(d.current_a),       unit: 'A'   },
     { label: 'Voltage (AC)',  value: fmt1(d.voltage_v),       unit: 'V'   },
@@ -120,7 +146,7 @@ export function detailRow(d) {
     { label: 'Temperature',   value: fmt1(d.temp_c),          unit: '°C'  },
     { label: 'Lifetime',      value: fmt1(d.lifetime_kwh),    unit: 'kWh' },
   ];
-  return `<tr class="detail-row" id="detail-${d.serial}"><td colspan="8"><div class="detail-grid">${
+  return `<tr class="detail-row" id="detail-${d.serial}"><td colspan="9"><div class="detail-grid">${
     fields.map(f => `<div class="detail-item">
       <span class="detail-label">${f.label}</span>
       <span class="detail-value">${f.value}${f.unit ? `<span class="detail-unit">${f.unit}</span>` : ''}</span>

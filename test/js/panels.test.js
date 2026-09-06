@@ -23,7 +23,7 @@ describe('detailRow', () => {
   it('returns a table row string', () => {
     const html = detailRow(makeDevice());
     expect(html).toMatch(/^<tr class="detail-row"/);
-    expect(html).toContain('colspan="8"');
+    expect(html).toContain('colspan="9"');
   });
 
   it('includes all expected field labels', () => {
