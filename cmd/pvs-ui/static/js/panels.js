@@ -1,7 +1,7 @@
 'use strict';
 
 import { fmt1 } from './display.js';
-import { formatRatio, LOW_LIGHT_KW, peerMedians, peerRatio, ratioTitle, UNDERPERFORM_RATIO } from './peers.js';
+import { formatRatio, isLow, LOW_LIGHT_KW, peerMedians, peerRatio, ratioTitle } from './peers.js';
 import { state, PANELS_TTL_MS } from './state.js';
 
 export async function fetchDevices() {
@@ -71,13 +71,12 @@ export function renderPanels() {
     const expanded = state.expandedSerials.has(d.serial);
     const label = state.serialToLabel[d.serial] || '—';
     const rel = relOf(d);
-    const low = !rel.dark && Number.isFinite(rel.ratio) && rel.ratio < UNDERPERFORM_RATIO;
     rows.push(`<tr class="panel-row${expanded ? ' expanded' : ''}" data-serial="${d.serial}">
       <td><button type="button" class="row-toggle" aria-expanded="${expanded}" aria-controls="detail-${d.serial}">${label}</button></td>
       <td class="${stateClass}" style="max-width:6rem;overflow:hidden;text-overflow:ellipsis">${d.state_descr}</td>
       <td>${d.serial}</td>
       <td>${fmt1(d.power_kw)}</td>
-      <td class="${low ? 'rel-low' : ''}" title="${ratioTitle(rel)}">${formatRatio(rel)}</td>
+      <td class="${isLow(rel) ? 'rel-low' : ''}" title="${ratioTitle(rel)}">${formatRatio(rel)}</td>
       <td>${fmt1(d.today_kwh)}</td>
       <td>${fmt1(d.lifetime_kwh)}</td>
       <td>${fmt1(d.voltage_v)}</td>
@@ -123,10 +122,7 @@ function relFoot(ctx, relOf) {
   const cell = (label, val) =>
     `<td><span style="color:var(--muted);font-weight:400;margin-right:0.3em;font-size:0.72rem">${label}</span>${val}</td>`;
   if (!(ctx.fleet >= LOW_LIGHT_KW)) return cell('', 'too dark');
-  const low = state.panelsData.filter(d => {
-    const r = relOf(d);
-    return !r.dark && Number.isFinite(r.ratio) && r.ratio < UNDERPERFORM_RATIO;
-  }).length;
+  const low = state.panelsData.filter(d => isLow(relOf(d))).length;
   return cell('low', String(low));
 }
 

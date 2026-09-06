@@ -1,7 +1,7 @@
 'use strict';
 
 import { fmt1 } from './display.js';
-import { formatRatio, peerMedians, peerRatio, ratioTitle, UNDERPERFORM_RATIO } from './peers.js';
+import { formatRatio, isLow, peerMedians, peerRatio, ratioTitle } from './peers.js';
 import { state, PANELS_TTL_MS } from './state.js';
 import { fetchDevices } from './panels.js';
 
@@ -122,8 +122,7 @@ export async function loadMap() {
       el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
       el.classList.add(stateClass);
     }
-    const low = rel && !rel.dark && Number.isFinite(rel.ratio) && rel.ratio < UNDERPERFORM_RATIO;
-    el.classList.toggle('panel-low', !!low);
+    el.classList.toggle('panel-low', !!rel && isLow(rel));
     if (el.title !== title) el.title = title;
 
     el._panelSerial = serial;
@@ -342,8 +341,9 @@ export function initMapAnimation() {
   });
 }
 
-export function showMapDetail(el, serial, dev, label, rel) {
-  if (rel === undefined) rel = el._panelRel;
+export function showMapDetail(el, serial, dev, label) {
+  // Peer ratio is stashed on the element by loadMap, alongside _panelDev.
+  const rel = el._panelRel;
   document.querySelectorAll('#map-container .panel.selected').forEach(p => p.classList.remove('selected'));
   el.classList.add('selected');
 

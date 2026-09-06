@@ -10,9 +10,9 @@
 // A peer group is the set of panels that *should* produce the same power at the
 // same moment. That is decided by shading, not by circuit: panels sharing a
 // roof plane and shadow track each other, while panels on one breaker can be
-// shaded at opposite ends of the day. Groups come from the optional third
-// column of map.csv (see parseCsv); panels without one share the UNGROUPED
-// pool, which still catches a hard failure even though its median is noisier.
+// shaded at opposite ends of the day. Groups come from the map.csv column
+// headed "group" (see parseCsv); panels without one share the UNGROUPED pool,
+// which still catches a hard failure even though its median is noisier.
 
 // Fleet median below this (kW) means there is not enough light to tell a fault
 // from nightfall — every panel is near zero and the ratio is noise.
@@ -57,15 +57,19 @@ export function peerRatio(device, ctx, serialToGroup = {}) {
   return { ratio: device.power_kw / med, dark: false, group };
 }
 
+// Whether a computed ratio counts as underperforming. The single definition:
+// the table, the map, and underperformers() all ask this rather than repeating
+// the comparison, so the threshold has one place to change.
+export function isLow({ ratio, dark }, threshold = UNDERPERFORM_RATIO) {
+  return !dark && Number.isFinite(ratio) && ratio < threshold;
+}
+
 // Panels producing far less than their peers. Stateless by design: a caller
 // that raises an alarm should require the same serials on consecutive polls,
 // because a passing cloud can dip one panel for a single reading.
 export function underperformers(panels, serialToGroup = {}, threshold = UNDERPERFORM_RATIO) {
   const ctx = peerMedians(panels, serialToGroup);
-  return panels.filter(d => {
-    const { ratio, dark } = peerRatio(d, ctx, serialToGroup);
-    return !dark && Number.isFinite(ratio) && ratio < threshold;
-  });
+  return panels.filter(d => isLow(peerRatio(d, ctx, serialToGroup), threshold));
 }
 
 // Ratio as a percentage string, or an explicit marker when it is not

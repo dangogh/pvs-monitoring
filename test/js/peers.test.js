@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  formatRatio, LOW_LIGHT_KW, median, peerMedians, peerRatio,
+  formatRatio, isLow, LOW_LIGHT_KW, median, peerMedians, peerRatio,
   ratioTitle, underperformers, UNDERPERFORM_RATIO, UNGROUPED,
 } from '../../cmd/pvs-ui/static/js/peers.js';
 
@@ -99,6 +99,30 @@ describe('peerRatio', () => {
     const r = peerRatio(p('B1', 0), ctx, groups);
     expect(r.dark).toBe(true);
     expect(r.ratio).toBeNaN();
+  });
+});
+
+describe('isLow', () => {
+  it('is true below the threshold', () => {
+    expect(isLow({ ratio: 0.15, dark: false })).toBe(true);
+  });
+
+  it('is false at or above the threshold', () => {
+    expect(isLow({ ratio: UNDERPERFORM_RATIO, dark: false })).toBe(false);
+    expect(isLow({ ratio: 0.95, dark: false })).toBe(false);
+  });
+
+  it('is false when dark, however small the ratio', () => {
+    // Nightfall must never read as a fleet-wide fault.
+    expect(isLow({ ratio: 0.01, dark: true })).toBe(false);
+  });
+
+  it('is false for a non-finite ratio', () => {
+    expect(isLow({ ratio: NaN, dark: false })).toBe(false);
+  });
+
+  it('accepts a caller-supplied threshold', () => {
+    expect(isLow({ ratio: 0.8, dark: false }, 0.9)).toBe(true);
   });
 });
 

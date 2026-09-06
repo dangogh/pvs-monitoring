@@ -481,12 +481,12 @@
 
     .state-working { color: var(--export); }
     .state-error   { color: var(--import); }
+    .state-other   { color: var(--muted); }
 
     /* Underperforming vs. peer group. The bullet is a non-colour cue so the
        state survives colourblindness, forced-colours mode, and greyscale. */
-    .rel-low       { color: var(--import); font-weight: 600; }
+    .rel-low        { color: var(--import); font-weight: 600; }
     .rel-low::after { content: " \2022"; }
-    .state-other   { color: var(--muted); }
 
     /* ── Panel detail (inline accordion) ───────────────────── */
     #panels-table tbody tr.panel-row { cursor: pointer; }
@@ -578,11 +578,11 @@
     #map-container .panel { cursor: pointer; transition: opacity 0.15s; }
     #map-container .panel.state-working  { background: #166534 !important; color: #bbf7d0 !important; }
     #map-container .panel.state-error    { background: #7f1d1d !important; color: #fecaca !important; }
+    #map-container .panel.state-other    { background: #374151 !important; color: #9ca3af !important; }
+    #map-container .panel.state-unknown  { background: #1e293b !important; color: #475569 !important; }
     /* Underperforming vs. peers: a dashed outline, so the cue is a shape rather
        than a hue and survives alongside the state background colour. */
     #map-container .panel.panel-low      { outline: 2px dashed var(--import); outline-offset: -3px; }
-    #map-container .panel.state-other    { background: #374151 !important; color: #9ca3af !important; }
-    #map-container .panel.state-unknown  { background: #1e293b !important; color: #475569 !important; }
     #map-container .panel:hover          { opacity: 0.75; }
     #map-container .panel.selected       { outline: 2px solid var(--solar); }
 
