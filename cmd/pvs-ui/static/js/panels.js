@@ -1,7 +1,7 @@
 'use strict';
 
 import { fmt1 } from './display.js';
-import { formatRatio, isLow, LOW_LIGHT_KW, peerMedians, peerRatio, ratioTitle } from './peers.js';
+import { formatRatio, isLow, LOW_LIGHT_KW, peerMedians, peerRatio, ratioSrText, ratioTitle } from './peers.js';
 import { state, PANELS_TTL_MS } from './state.js';
 
 export async function fetchDevices() {
@@ -76,7 +76,7 @@ export function renderPanels() {
       <td class="${stateClass}" style="max-width:6rem;overflow:hidden;text-overflow:ellipsis">${d.state_descr}</td>
       <td>${d.serial}</td>
       <td>${fmt1(d.power_kw)}</td>
-      <td class="${isLow(rel) ? 'rel-low' : ''}" title="${ratioTitle(rel)}">${formatRatio(rel)}</td>
+      <td class="${isLow(rel) ? 'rel-low' : ''}" title="${ratioTitle(rel)}">${formatRatio(rel)}<span class="sr-only">${ratioSrText(rel)}</span></td>
       <td>${fmt1(d.today_kwh)}</td>
       <td>${fmt1(d.lifetime_kwh)}</td>
       <td>${fmt1(d.voltage_v)}</td>

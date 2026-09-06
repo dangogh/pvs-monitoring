@@ -23,6 +23,12 @@ export const UNDERPERFORM_RATIO = 0.60;
 
 export const UNGROUPED = 'ungrouped';
 
+// A median needs peers to be a median. Below this many panels in a group the
+// comparison is against too few others to mean anything — at a group of one it
+// is the panel against itself, which reads 100% forever and can never be
+// flagged. Report no comparison instead of a reassuring number.
+export const MIN_PEERS = 3;
+
 export function median(values) {
   const v = values.filter(x => typeof x === 'number' && Number.isFinite(x)).sort((a, b) => a - b);
   if (v.length === 0) return NaN;
@@ -38,9 +44,12 @@ export function peerMedians(panels, serialToGroup = {}) {
     const g = serialToGroup[d.serial] || UNGROUPED;
     (byGroup[g] ||= []).push(d.power_kw);
   });
-  const medians = {};
-  Object.keys(byGroup).forEach(g => { medians[g] = median(byGroup[g]); });
-  return { medians, fleet: median(panels.map(d => d.power_kw)) };
+  const medians = {}, counts = {};
+  Object.keys(byGroup).forEach(g => {
+    medians[g] = median(byGroup[g]);
+    counts[g] = byGroup[g].length;
+  });
+  return { medians, counts, fleet: median(panels.map(d => d.power_kw)) };
 }
 
 // Ratio of one panel to its peer group's median.
@@ -52,6 +61,9 @@ export function peerMedians(panels, serialToGroup = {}) {
 export function peerRatio(device, ctx, serialToGroup = {}) {
   const group = serialToGroup[device.serial] || UNGROUPED;
   if (!(ctx.fleet >= LOW_LIGHT_KW)) return { ratio: NaN, dark: true, group };
+  // Too few peers to compare against: not a low-light condition, just no
+  // usable denominator. Falls through to the "no comparison" rendering.
+  if ((ctx.counts?.[group] ?? 0) < MIN_PEERS) return { ratio: NaN, dark: false, group };
   const med = ctx.medians[group];
   if (!(med > 0)) return { ratio: NaN, dark: true, group };
   return { ratio: device.power_kw / med, dark: false, group };
@@ -83,6 +95,16 @@ export function formatRatio({ ratio, dark }) {
 
 export function ratioTitle(r) {
   if (r.dark) return 'too dark to compare';
-  if (!Number.isFinite(r.ratio)) return 'no comparison available';
+  if (!Number.isFinite(r.ratio)) return `too few peers in ${r.group} to compare`;
   return `${formatRatio(r)} of ${r.group} median`;
+}
+
+// The part of the ratio a sighted reader gets from position and colour: which
+// group the comparison is against, and whether it counts as underperforming.
+// Rendered as visually-hidden text so a screen reader hears it too — a `title`
+// attribute is not reliably announced, and the red/bullet cue is decoration.
+export function ratioSrText(r, threshold = UNDERPERFORM_RATIO) {
+  if (r.dark) return 'too dark to compare';
+  if (!Number.isFinite(r.ratio)) return 'too few peers to compare';
+  return ` of ${r.group} median` + (isLow(r, threshold) ? ', underperforming' : '');
 }

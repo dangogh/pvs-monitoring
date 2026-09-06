@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  formatRatio, isLow, LOW_LIGHT_KW, median, peerMedians, peerRatio,
-  ratioTitle, underperformers, UNDERPERFORM_RATIO, UNGROUPED,
+  formatRatio, isLow, LOW_LIGHT_KW, median, MIN_PEERS, peerMedians, peerRatio,
+  ratioSrText, ratioTitle, underperformers, UNDERPERFORM_RATIO, UNGROUPED,
 } from '../../cmd/pvs-ui/static/js/peers.js';
 
 const p = (serial, power_kw) => ({ serial, power_kw });
@@ -102,6 +102,39 @@ describe('peerRatio', () => {
   });
 });
 
+describe('too few peers', () => {
+  // A group of one compares a panel against itself: 100% forever, never
+  // flagged. Silence is safer than a reassuring number.
+  it('gives no ratio for a lone panel in its own group', () => {
+    const panels = [...twoGroups, p('Z1', 0.01)];
+    const g = { ...groups, Z1: 'solo' };
+    const r = peerRatio(p('Z1', 0.01), peerMedians(panels, g), g);
+    expect(r.ratio).toBeNaN();
+    expect(r.dark).toBe(false);       // not a light problem
+    expect(formatRatio(r)).toBe('—');
+  });
+
+  it('says why, rather than claiming darkness', () => {
+    const panels = [...twoGroups, p('Z1', 0.01)];
+    const g = { ...groups, Z1: 'solo' };
+    const r = peerRatio(p('Z1', 0.01), peerMedians(panels, g), g);
+    expect(ratioTitle(r)).toBe('too few peers in solo to compare');
+    expect(ratioSrText(r)).toBe('too few peers to compare');
+  });
+
+  it('never flags a panel it cannot compare', () => {
+    const panels = [...twoGroups, p('Z1', 0.001)];
+    const g = { ...groups, Z1: 'solo' };
+    expect(underperformers(panels, g).map(d => d.serial)).toEqual([]);
+  });
+
+  it('compares normally at exactly MIN_PEERS', () => {
+    const panels = [p('A1', 1.0), p('A2', 1.0), p('A3', 0.1)];
+    const g = { A1: 'am', A2: 'am', A3: 'am' };
+    expect(peerRatio(p('A3', 0.1), peerMedians(panels, g), g).ratio).toBeCloseTo(0.1);
+  });
+});
+
 describe('isLow', () => {
   it('is true below the threshold', () => {
     expect(isLow({ ratio: 0.15, dark: false })).toBe(true);
@@ -145,6 +178,24 @@ describe('underperformers', () => {
 
   it('accepts a caller-supplied threshold', () => {
     expect(underperformers(twoGroups, groups, 0.99).length).toBeGreaterThan(0);
+  });
+});
+
+describe('ratioSrText', () => {
+  // The visible cell shows only "15%". Everything a sighted reader gets from
+  // colour and column position has to be in this text.
+  it('names the peer group', () => {
+    expect(ratioSrText({ ratio: 0.98, dark: false, group: 'unshaded' }))
+      .toBe(' of unshaded median');
+  });
+
+  it('says underperforming rather than relying on the colour', () => {
+    expect(ratioSrText({ ratio: 0.15, dark: false, group: 'morning-shaded' }))
+      .toBe(' of morning-shaded median, underperforming');
+  });
+
+  it('explains the low-light state', () => {
+    expect(ratioSrText({ ratio: NaN, dark: true, group: 'x' })).toBe('too dark to compare');
   });
 });
 
