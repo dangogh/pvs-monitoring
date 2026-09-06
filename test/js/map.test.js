@@ -40,6 +40,47 @@ C02,SN003,dup-position
     expect(Object.keys(positionToSerial)).toHaveLength(0);
   });
 
+  describe('peer group column', () => {
+    it('reads a column headed "group" into serialToGroup', () => {
+      const { serialToGroup } = parseCsv('Position,Serial,Group\nA1,SN001,morning-shaded\n');
+      expect(serialToGroup['SN001']).toBe('morning-shaded');
+    });
+
+    it('finds the group column wherever it sits', () => {
+      const { serialToGroup } = parseCsv(
+        'Position,Serial,Lifetime_kWh,Group\nA1,SN001,270.39,unshaded\n');
+      expect(serialToGroup['SN001']).toBe('unshaded');
+    });
+
+    it('ignores unrelated trailing columns', () => {
+      // The deployed map.csv carries a Lifetime_kWh third column; those values
+      // must never be mistaken for group names.
+      const { serialToGroup } = parseCsv('Position,Serial,Lifetime_kWh\nA1,SN001,270.3954\n');
+      expect(serialToGroup).toEqual({});
+    });
+
+    it('matches the group header case-insensitively', () => {
+      const { serialToGroup } = parseCsv('position,serial,GROUP\nA1,SN001,unshaded\n');
+      expect(serialToGroup['SN001']).toBe('unshaded');
+    });
+
+    it('leaves serialToGroup empty for a two-column file', () => {
+      const { serialToGroup, positionToSerial } = parseCsv('Position,Serial\nA1,SN001\n');
+      expect(positionToSerial['A1']).toBe('SN001');   // still parses
+      expect(serialToGroup).toEqual({});
+    });
+
+    it('omits panels whose group cell is blank', () => {
+      const { serialToGroup } = parseCsv('Position,Serial,Group\nA1,SN001,\nA2,SN002,unshaded\n');
+      expect(serialToGroup).toEqual({ SN002: 'unshaded' });
+    });
+
+    it('trims surrounding whitespace', () => {
+      const { serialToGroup } = parseCsv('Position,Serial,Group\nA1,SN001, unshaded \n');
+      expect(serialToGroup['SN001']).toBe('unshaded');
+    });
+  });
+
   it('returns empty maps for header-only csv', () => {
     const { positionToSerial, serialToLabel } = parseCsv('Position,Serial\n');
     expect(Object.keys(positionToSerial)).toHaveLength(0);

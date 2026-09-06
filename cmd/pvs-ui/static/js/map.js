@@ -1,6 +1,7 @@
 'use strict';
 
 import { fmt1 } from './display.js';
+import { formatRatio, peerMedians, peerRatio, ratioTitle, UNDERPERFORM_RATIO } from './peers.js';
 import { state, PANELS_TTL_MS } from './state.js';
 import { fetchDevices } from './panels.js';
 
@@ -9,9 +10,18 @@ export function normalisePosition(pos) {
   return pos.replace(/^([A-Za-z]+)0*(\d+)$/, (_, l, n) => l.toUpperCase() + parseInt(n, 10));
 }
 
+// map.csv is position,serial plus any number of extra columns. A panel's peer
+// group (see peers.js) is read from a column whose header is "group", wherever
+// it appears — deployed files already carry other trailing columns, so the
+// group cannot be taken by position. A file without that header simply yields
+// no groups, and every panel falls into the ungrouped pool.
 export function parseCsv(csvText) {
-  const result = { positionToSerial: {}, serialToLabel: {} };
-  csvText.split('\n').slice(1).forEach(line => {
+  const result = { positionToSerial: {}, serialToLabel: {}, serialToGroup: {} };
+  const lines = csvText.split('\n');
+  const header = (lines[0] || '').split(',').map(h => h.trim().toLowerCase());
+  const groupCol = header.indexOf('group');
+
+  lines.slice(1).forEach(line => {
     const parts = line.split(',');
     if (parts.length >= 2) {
       const pos    = normalisePosition(parts[0].trim());
@@ -19,6 +29,10 @@ export function parseCsv(csvText) {
       if (pos && serial) {
         result.positionToSerial[pos] = serial;
         result.serialToLabel[serial] = pos;
+        if (groupCol > 1) {
+          const group = (parts[groupCol] || '').trim();
+          if (group) result.serialToGroup[serial] = group;
+        }
       }
     }
   });
@@ -36,9 +50,10 @@ export async function initMap() {
     const mapHtml = await mapResp.text();
     const csvText = await csvResp.text();
 
-    const { positionToSerial, serialToLabel } = parseCsv(csvText);
+    const { positionToSerial, serialToLabel, serialToGroup } = parseCsv(csvText);
     Object.assign(state.positionToSerial, positionToSerial);
     Object.assign(state.serialToLabel, serialToLabel);
+    Object.assign(state.serialToGroup, serialToGroup);
 
     const mapDoc = new DOMParser().parseFromString(mapHtml, 'text/html');
     let css = '';
@@ -78,6 +93,7 @@ export async function loadMap() {
   } catch (_) {}
   finally { overlay?.remove(); }
   const devices = Object.fromEntries(state.panelsData.map(d => [d.serial, d]));
+  const ctx = peerMedians(state.panelsData, state.serialToGroup);
 
   if (!state.mapPanelEls) {
     state.mapPanelEls = Array.from(document.querySelectorAll('#map-container .panel')).map(el => ({
@@ -94,17 +110,25 @@ export async function loadMap() {
                      : dev.state === 'working' ? 'state-working'
                      : dev.state === 'error'   ? 'state-error'
                      : 'state-other';
+    // Peer ratio rides alongside the state colour rather than replacing it: a
+    // panel can be "working" and still be far below its neighbours, which is
+    // exactly the case this view exists to surface.
+    const rel = dev ? peerRatio(dev, ctx, state.serialToGroup) : null;
     const title = !dev ? label + ': no data'
-                        : label + ' · ' + dev.state_descr + ' · ' + fmt1(dev.power_kw) + ' kW';
+                        : label + ' · ' + dev.state_descr + ' · ' + fmt1(dev.power_kw) + ' kW'
+                          + ' · ' + ratioTitle(rel);
 
     if (!el.classList.contains(stateClass)) {
       el.classList.remove('state-working', 'state-error', 'state-other', 'state-unknown');
       el.classList.add(stateClass);
     }
+    const low = rel && !rel.dark && Number.isFinite(rel.ratio) && rel.ratio < UNDERPERFORM_RATIO;
+    el.classList.toggle('panel-low', !!low);
     if (el.title !== title) el.title = title;
 
     el._panelSerial = serial;
     el._panelDev = dev;
+    el._panelRel = rel;
     if (!el.onclick) {
       el.onclick = () => showMapDetail(el, el._panelSerial, el._panelDev, label);
     }
@@ -318,7 +342,8 @@ export function initMapAnimation() {
   });
 }
 
-export function showMapDetail(el, serial, dev, label) {
+export function showMapDetail(el, serial, dev, label, rel) {
+  if (rel === undefined) rel = el._panelRel;
   document.querySelectorAll('#map-container .panel.selected').forEach(p => p.classList.remove('selected'));
   el.classList.add('selected');
 
@@ -331,6 +356,8 @@ export function showMapDetail(el, serial, dev, label) {
     document.getElementById('map-detail-grid').innerHTML = [
       detailSection('AC Output', [
         { label: 'Power',    value: fmt1(dev.power_kw),   unit: 'kW'  },
+        { label: 'vs peers', value: rel ? formatRatio(rel) : '—',
+          unit: rel && !rel.dark ? `of ${rel.group}` : '' },
         { label: 'Today',    value: fmt1(dev.today_kwh),  unit: 'kWh' },
         { label: 'Current',  value: fmt1(dev.current_a),  unit: 'A'   },
         { label: 'Voltage',  value: fmt1(dev.voltage_v),  unit: 'V'   },
