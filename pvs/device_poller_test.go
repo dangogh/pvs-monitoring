@@ -475,10 +475,14 @@ func (f *fakeDeviceStore) Close() error                       { return nil }
 func TestDevicePollerOutageTracking(t *testing.T) {
 	ctx := context.Background()
 
+	// Fixtures carry grid voltage and frequency so they parse as genuine
+	// reports; a payload without them is the PVS6's fabricated all-zero
+	// record and is relabelled unreachable (see StateUnreachable).
 	inv := func(state string) map[string]any {
 		return map[string]any{
 			"SERIAL": "INV001", "DEVICE_TYPE": "Inverter",
 			"TYPE": "MI", "MODEL": "SPR-X22", "STATE": state, "STATEDESCR": state,
+			"vln_3phavg_v": "240.1", "freq_hz": "60.0",
 		}
 	}
 
@@ -606,5 +610,71 @@ func TestDevicePollerOutageTracking(t *testing.T) {
 		defer store.mu.Unlock()
 		assert.Equal(t, 2, store.saveCount, "meter saved on every poll")
 		assert.Len(t, store.outages, 1, "only one outage opened for inverter")
+	})
+}
+
+func TestDevicePollerUnreachableTracking(t *testing.T) {
+	ctx := context.Background()
+
+	// zombie is the PVS6's fabricated record for an inverter it cannot
+	// reach: no electrical fields at all, yet labelled "working". This is
+	// exactly what the 2026-08-23 daytime branch outage looked like.
+	zombie := map[string]any{
+		"SERIAL": "INV001", "DEVICE_TYPE": "Inverter",
+		"TYPE": "MI", "MODEL": "SPR-X22", "STATE": "working", "STATEDESCR": "Working",
+	}
+	healthy := map[string]any{
+		"SERIAL": "INV001", "DEVICE_TYPE": "Inverter",
+		"TYPE": "MI", "MODEL": "SPR-X22", "STATE": "working", "STATEDESCR": "Working",
+		"vln_3phavg_v": "240.1", "freq_hz": "60.0",
+	}
+	errored := map[string]any{
+		"SERIAL": "INV001", "DEVICE_TYPE": "Inverter",
+		"TYPE": "MI", "MODEL": "SPR-X22", "STATE": "error", "STATEDESCR": "error",
+		"vln_3phavg_v": "240.1", "freq_hz": "60.0",
+	}
+
+	run := func(t *testing.T, responses [][]map[string]any) *fakeDeviceStore {
+		t.Helper()
+		i := 0
+		srv := newDevServer(t, nil, func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(deviceListBody(responses[i]))
+			i++
+		})
+		defer srv.Close()
+		store := &fakeDeviceStore{}
+		p := newTestPoller(t, srv, store)
+		for range responses {
+			require.NoError(t, p.poll(ctx))
+		}
+		return store
+	}
+
+	t.Run("fabricated working record opens an outage and is written once", func(t *testing.T) {
+		store := run(t, [][]map[string]any{{healthy}, {zombie}, {zombie}, {zombie}})
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 2, store.saveCount, "healthy poll plus one unreachable transition")
+		require.Len(t, store.outages, 1)
+		assert.True(t, store.outages[0].healthyAt.IsZero(), "outage should still be open")
+	})
+
+	t.Run("recovery from unreachable closes the outage", func(t *testing.T) {
+		store := run(t, [][]map[string]any{{zombie}, {healthy}})
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		assert.Equal(t, 2, store.saveCount)
+		require.Len(t, store.outages, 1)
+		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage should be closed")
+	})
+
+	t.Run("error and unreachable share one outage span", func(t *testing.T) {
+		// dusk error → overnight fabricated zeros → dawn recovery
+		store := run(t, [][]map[string]any{{errored}, {zombie}, {zombie}, {healthy}})
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		require.Len(t, store.outages, 1, "error ↔ unreachable flips must not open a second outage")
+		assert.False(t, store.outages[0].healthyAt.IsZero(), "outage closed on recovery")
+		assert.Equal(t, 2, store.saveCount, "error transition and recovery; overnight zeros suppressed")
 	})
 }
