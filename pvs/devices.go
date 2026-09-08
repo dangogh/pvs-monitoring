@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+// StateUnreachable is the state substituted for the PVS6's fabricated
+// all-zero inverter records: 0 V / 0 Hz cannot be a genuine measurement, so
+// it marks a device the gateway could not contact rather than a reading.
+const StateUnreachable = "unreachable"
+
 // InverterDevice holds a single per-inverter reading.
 type InverterDevice struct {
 	Serial        string    `json:"serial"`
@@ -135,6 +140,14 @@ func (d Device) ToInverter(receivedAt time.Time) (InverterDevice, error) {
 	}
 	if inv.FreqHz, err = parseFloat("freq_hz", r.FreqHz); err != nil {
 		return InverterDevice{}, fmt.Errorf("inverter %s: %w", r.Serial, err)
+	}
+	// The PVS6 reports an inverter it cannot reach (asleep overnight, dead
+	// powerline link) as an all-zero record still labelled "working". A
+	// grid-tied inverter can never genuinely measure 0 V and 0 Hz, so relabel
+	// the fabrication instead of storing it as a reading.
+	if inv.VoltageV == 0 && inv.FreqHz == 0 {
+		inv.State = StateUnreachable
+		inv.StateDescr = "no contact with inverter"
 	}
 	return inv, nil
 }

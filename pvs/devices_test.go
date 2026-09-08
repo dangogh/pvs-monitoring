@@ -3,6 +3,7 @@ package pvs
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -109,4 +110,27 @@ func TestParseDeviceListRawIsIndependentPerDevice(t *testing.T) {
 	require.NoError(t, json.Unmarshal(got[1].Raw, &b))
 	assert.Equal(t, float64(1), a["x"])
 	assert.Equal(t, float64(2), b["x"])
+}
+
+func TestToInverterRelabelsFabricatedZeroRecord(t *testing.T) {
+	// The PVS6 reports an inverter it cannot reach as an all-zero record
+	// still labelled "working"; 0 V / 0 Hz cannot be a genuine measurement.
+	raw := []byte(`{"SERIAL":"INV9","DEVICE_TYPE":"Inverter","STATE":"working","STATEDESCR":"Working"}`)
+	d := Device{Serial: "INV9", DeviceType: "Inverter", State: "working", Raw: raw}
+	inv, err := d.ToInverter(time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, StateUnreachable, inv.State)
+	assert.Equal(t, "no contact with inverter", inv.StateDescr)
+}
+
+func TestToInverterKeepsGenuineStates(t *testing.T) {
+	// Real reports carry grid voltage and frequency even at zero power
+	// (dawn, dusk, a reported error) and must keep their claimed state.
+	for _, state := range []string{"working", "error"} {
+		raw := []byte(`{"SERIAL":"INV9","STATE":"` + state + `","STATEDESCR":"x","p_3phsum_kw":"0","vln_3phavg_v":"238.5","freq_hz":"60.0"}`)
+		d := Device{Serial: "INV9", DeviceType: "Inverter", State: state, Raw: raw}
+		inv, err := d.ToInverter(time.Now())
+		require.NoError(t, err)
+		assert.Equal(t, state, inv.State)
+	}
 }

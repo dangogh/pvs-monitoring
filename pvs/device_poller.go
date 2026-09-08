@@ -103,6 +103,13 @@ func NewDevicePoller(cfg config.DeviceListConfig, store Store, logger *slog.Logg
 	}
 }
 
+// notReporting groups the two states in which an inverter delivers no data:
+// a reported error and a fabricated all-zero record (see StateUnreachable).
+// Transitions within the class are suppressed and share one outage span.
+func notReporting(state string) bool {
+	return state == "error" || state == StateUnreachable
+}
+
 // seedFromStore initialises lastInverterState from any open outages in the store.
 // This ensures that inverters which recovered while the daemon was down have
 // their outages closed correctly on the first poll after a restart.
@@ -196,23 +203,35 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 			toSave = append(toSave, d)
 			continue
 		}
+		// Judge by the parsed state, not the PVS6's claim: ToInverter relabels
+		// the gateway's fabricated all-zero records as unreachable.
+		state := d.State
+		if inv, err := d.ToInverter(now); err == nil {
+			state = inv.State
+		}
+		// error and unreachable are one class: the panel is not delivering
+		// data, whether the PVS6 says so (error) or fabricates zeros
+		// (unreachable). The real daytime branch outage of 2026-08-23 showed
+		// as all-zero rows labelled "working", so unreachable must open
+		// outages exactly as error does or daytime failures go untracked.
 		prev := p.lastInverterState[d.Serial]
 		switch {
-		case d.State == "error" && prev == "error":
-			// sustained error: skip
-		case d.State == "error":
-			// transition to error: write once so the panel remains visible in the UI,
-			// then suppress further writes until state changes
-			p.lastInverterState[d.Serial] = "error"
+		case notReporting(state) && notReporting(prev):
+			// sustained: skip to avoid accumulating identical rows overnight;
+			// the outage stays open across error ↔ unreachable flips
+		case notReporting(state):
+			// transition in: write once so the panel remains visible in the UI,
+			// then suppress further writes until it reports again
+			p.lastInverterState[d.Serial] = state
 			toSave = append(toSave, d)
 			if p.store != nil {
 				if err := p.store.OpenInverterOutage(ctx, d.Serial, now); err != nil {
 					p.logger.Error("open outage failed", "serial", d.Serial, "err", err)
 				}
 			}
-		case prev == "error":
+		case notReporting(prev):
 			// recovery: close the outage and save the healthy reading
-			p.lastInverterState[d.Serial] = d.State
+			p.lastInverterState[d.Serial] = state
 			if p.store != nil {
 				if err := p.store.CloseInverterOutage(ctx, d.Serial, now); err != nil {
 					p.logger.Error("close outage failed", "serial", d.Serial, "err", err)
@@ -221,7 +240,7 @@ func (p *DevicePoller) poll(ctx context.Context) error {
 			toSave = append(toSave, d)
 		default:
 			// healthy (working → working, or first poll)
-			p.lastInverterState[d.Serial] = d.State
+			p.lastInverterState[d.Serial] = state
 			toSave = append(toSave, d)
 		}
 	}
