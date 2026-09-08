@@ -31,6 +31,7 @@ export const state = {
   // Map
   positionToSerial: {},
   serialToLabel:    {},
+  serialToGroup:    {},   // serial → peer group (optional 3rd column of map.csv)
   mapLoaded:        false,
 
   // Maintenance events

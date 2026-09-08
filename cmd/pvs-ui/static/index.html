@@ -483,6 +483,11 @@
     .state-error   { color: var(--import); }
     .state-other   { color: var(--muted); }
 
+    /* Underperforming vs. peer group. The bullet is a non-colour cue so the
+       state survives colourblindness, forced-colours mode, and greyscale. */
+    .rel-low        { color: var(--import); font-weight: 600; }
+    .rel-low::after { content: " \2022"; }
+
     /* ── Panel detail (inline accordion) ───────────────────── */
     #panels-table tbody tr.panel-row { cursor: pointer; }
     #panels-table tbody tr.panel-row.expanded { background: rgba(245,158,11,0.1); }
@@ -575,6 +580,9 @@
     #map-container .panel.state-error    { background: #7f1d1d !important; color: #fecaca !important; }
     #map-container .panel.state-other    { background: #374151 !important; color: #9ca3af !important; }
     #map-container .panel.state-unknown  { background: #1e293b !important; color: #475569 !important; }
+    /* Underperforming vs. peers: a dashed outline, so the cue is a shape rather
+       than a hue and survives alongside the state background colour. */
+    #map-container .panel.panel-low      { outline: 2px dashed var(--import); outline-offset: -3px; }
     #map-container .panel:hover          { opacity: 0.75; }
     #map-container .panel.selected       { outline: 2px solid var(--solar); }
 
@@ -1030,6 +1038,7 @@
             <th scope="col" data-col="state"        style="max-width:6rem">State</th>
             <th scope="col" data-col="serial"                             >Serial</th>
             <th scope="col" data-col="power_kw"                          >kW</th>
+            <th scope="col" data-col="rel"          title="Output as a percentage of this panel's peer-group median">vs peers</th>
             <th scope="col" data-col="today_kwh"                         >Today (kWh)</th>
             <th scope="col" data-col="lifetime_kwh"                      >Lifetime (kWh)</th>
             <th scope="col" data-col="voltage_v"                         >Voltage (V)</th>

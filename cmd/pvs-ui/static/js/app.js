@@ -80,7 +80,11 @@ async function loadVersion() {
 
   await fetchMaintenanceEvents();
   loadRange('today');
-  initMap();
+  // Awaited: initMap loads map.csv, which carries the peer groups the Panels
+  // tab compares against. Rendering before it lands shows every panel as
+  // ungrouped until the next refresh. It swallows its own errors, so a site
+  // with no map assets still proceeds.
+  await initMap();
   initMapAnimation();
   fetchDevices().catch(() => {});
 
