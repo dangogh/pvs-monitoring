@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalisePosition, parseCsv } from '../../cmd/pvs-ui/static/js/map.js';
+import { normalisePosition, parseCsv, ratioToScale, powerColor } from '../../cmd/pvs-ui/static/js/map.js';
 
 describe('normalisePosition', () => {
   it('strips leading zeros from number',  () => expect(normalisePosition('C02')).toBe('C2'));
@@ -85,5 +85,71 @@ C02,SN003,dup-position
     const { positionToSerial, serialToLabel } = parseCsv('Position,Serial\n');
     expect(Object.keys(positionToSerial)).toHaveLength(0);
     expect(Object.keys(serialToLabel)).toHaveLength(0);
+  });
+});
+
+describe('ratioToScale', () => {
+  // The curve is compressed where panels normally live and expanded below it,
+  // so ordinary spread stays subtle while a real shortfall is obvious.
+  it('keeps a typical panel solidly green', () => {
+    expect(ratioToScale(1.0)).toBeGreaterThan(0.9);
+  });
+
+  // Measured spread across 48 healthy panels at clear-sky noon was 5%.
+  // That must be perceptible but undramatic: a shade, not an alarm.
+  it('renders normal 5% spread as a barely-perceptible shade', () => {
+    const spread = ratioToScale(1.025) - ratioToScale(0.975);
+    expect(spread).toBeGreaterThan(0);
+    expect(spread).toBeLessThan(0.05);
+  });
+
+  // The whole point: the same 5% of ratio must move colour much further down
+  // in the range where a panel is actually in trouble.
+  it('expands the same difference far more when output is low', () => {
+    const normal = ratioToScale(1.025) - ratioToScale(0.975);
+    const low    = ratioToScale(0.825) - ratioToScale(0.775);
+    expect(low).toBeGreaterThan(normal * 2);
+  });
+
+  it('makes a panel at 80% of peers visibly off-colour', () => {
+    expect(ratioToScale(0.8)).toBeLessThan(0.75);
+    expect(ratioToScale(0.8)).toBeGreaterThan(0.6);
+  });
+
+  // 0.6 is UNDERPERFORM_RATIO: the gradient and the dashed panel-low outline
+  // must agree about where trouble starts.
+  it('maps the underperform threshold to amber', () => {
+    expect(ratioToScale(0.6)).toBeCloseTo(0.42, 2);
+  });
+
+  it('maps a dead panel to the bottom',  () => expect(ratioToScale(0)).toBe(0));
+  it('clamps an outlier to full scale',  () => expect(ratioToScale(5)).toBe(1));
+  it('treats non-finite input as zero',  () => {
+    expect(ratioToScale(NaN)).toBe(0);
+    expect(ratioToScale(-1)).toBe(0);
+  });
+  it('is monotonic across the range', () => {
+    let prev = -1;
+    [0, 0.2, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 2].forEach(r => {
+      const t = ratioToScale(r);
+      expect(t).toBeGreaterThanOrEqual(prev);
+      expect(t).toBeLessThanOrEqual(1);
+      prev = t;
+    });
+  });
+});
+
+describe('powerColor', () => {
+  it('returns a colour pair at every scale point', () => {
+    [0, 0.25, 0.5, 0.75, 1].forEach(t => {
+      const [bg, fg] = powerColor(t);
+      expect(bg).toMatch(/^rgb\(\d+,\d+,\d+\)$/);
+      expect(fg).toMatch(/^#[0-9a-f]{6}$/i);
+    });
+  });
+  it('is monotonic in green from amber to full', () => {
+    const g = t => Number(powerColor(t)[0].match(/rgb\((\d+),(\d+),(\d+)\)/)[2]);
+    expect(g(1)).toBeGreaterThan(0);
+    expect(powerColor(0)[0]).not.toBe(powerColor(1)[0]);
   });
 });

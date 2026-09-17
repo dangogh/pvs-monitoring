@@ -123,6 +123,27 @@ export async function loadMap() {
       el.classList.add(stateClass);
     }
     el.classList.toggle('panel-low', !!rel && isLow(rel));
+
+    // Shade a working panel by how it compares to its peers. A flat green map
+    // says only "reporting", which is the state the array is in almost always;
+    // the gradient is what makes an underperforming panel visible before it
+    // crosses the underperform threshold. Only 'working' is shaded -- error and
+    // unknown keep their own colours, which carry more urgent meaning than a
+    // ratio does. In low light (or with too few peers) there is no meaningful
+    // ratio, so the panel falls back to the flat state colour rather than
+    // showing a misleading gradient.
+    // Playback owns the panel colours while it is running; a live refresh
+    // landing mid-animation must not repaint over the frame being shown.
+    const animating = document.getElementById('map-container')?.classList.contains('anim-mode');
+    const shade = !animating && stateClass === 'state-working' && rel && !rel.dark
+                  && Number.isFinite(rel.ratio) ? powerColor(ratioToScale(rel.ratio)) : null;
+    if (shade) {
+      el.style.setProperty('background', shade[0], 'important');
+      el.style.setProperty('color', shade[1], 'important');
+    } else if (el.style.background) {
+      el.style.removeProperty('background');
+      el.style.removeProperty('color');
+    }
     if (el.title !== title) el.title = title;
 
     el._panelSerial = serial;
@@ -168,8 +189,38 @@ function todayMidnight() {
   return d;
 }
 
+// Map a peer ratio onto powerColor's 0..1 scale.
+//
+// Deliberately non-linear, because the interesting range is not the common one.
+// A healthy array is uniform: measured across 48 panels at clear-sky noon the
+// whole fleet sat within 5% of each other (0.255-0.269 kW on 2026-09-02). A
+// linear scale spends most of its colour on that 5% and has little left for a
+// panel that is genuinely failing.
+//
+// So the curve is compressed above 0.9 and expanded below it:
+//
+//   ratio >= 0.9  ->  0.88 .. 1.0   normal variation, a shade lighter or darker
+//   ratio 0.6-0.9 ->  0.42 .. 0.88  visibly dimmer, worth a look
+//   ratio 0-0.6   ->  0.00 .. 0.42  amber to grey; 0.6 is UNDERPERFORM_RATIO,
+//                                   so the gradient and the dashed panel-low
+//                                   outline agree about where trouble starts
+//
+// The middle band changes colour 2.5x faster per unit of ratio than the normal
+// band, which is what makes a real shortfall jump out while ordinary spread
+// stays quiet.
+//
+// The effect: a typical panel is solid green, a 5% spread is barely perceptible,
+// and a panel at 80% of its peers is unmistakably off-colour.
+export function ratioToScale(ratio) {
+  if (!Number.isFinite(ratio) || ratio <= 0) return 0;
+  if (ratio >= 1.1) return 1;
+  if (ratio >= 0.9) return 0.88 + (ratio - 0.9) / 0.2 * 0.12;
+  if (ratio >= 0.6) return 0.42 + (ratio - 0.6) / 0.3 * 0.46;
+  return ratio / 0.6 * 0.42;
+}
+
 // Map t ∈ [0,1] to a color: gray(0) → amber(0.5) → green(1)
-function powerColor(t) {
+export function powerColor(t) {
   if (t <= 0.5) {
     const s = t * 2;
     const r = Math.round(107 + (251 - 107) * s);
