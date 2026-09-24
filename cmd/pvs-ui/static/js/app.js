@@ -53,6 +53,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// Fetch the site's configured timezone so day/week/month bucketing and the
+// chart axis read as the PVS6 site sees them rather than the viewing
+// browser's timezone (see #96). Leaves state.siteTimezone undefined — the
+// pre-existing browser-local fallback — if the site hasn't set one or the
+// request fails.
+async function loadSiteTimezone() {
+  try {
+    const resp = await fetch(state.apiBase + '/api/config');
+    if (!resp.ok) return;
+    const cfg = await resp.json();
+    if (cfg && cfg.timezone) state.siteTimezone = cfg.timezone;
+  } catch (_) {}
+}
+
 // Fetch the app version from pvs-api and show it in the footer.
 async function loadVersion() {
   const el = document.getElementById('app-version');
@@ -71,6 +85,10 @@ async function loadVersion() {
     const cfg = await fetch('/config.json').then(r => r.json());
     state.apiBase = (cfg.api_base || '').replace(/\/$/, '');
   } catch (_) {}
+
+  // Awaited: resolveRange('today') below needs the site timezone to compute
+  // the right day boundary before the first fetch goes out.
+  await loadSiteTimezone();
 
   loadVersion();
   initClock();

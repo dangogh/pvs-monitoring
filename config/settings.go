@@ -21,6 +21,7 @@ const (
 	KeyDeviceListUsername       = "device_list.username"
 	KeyDeviceListPassword       = "device_list.password"
 	KeyDeviceListTLSFingerprint = "device_list.tls_fingerprint"
+	KeyTimezone                 = "timezone"
 )
 
 // SettingsReader reads persisted settings. Defined here (rather than importing
@@ -92,6 +93,8 @@ func applySettings(cfg *Config, m map[string]string) error {
 			cfg.DeviceList.Password = val
 		case KeyDeviceListTLSFingerprint:
 			cfg.DeviceList.TLSFingerprint = val
+		case KeyTimezone:
+			cfg.Timezone = val
 		}
 	}
 	return nil
@@ -121,6 +124,7 @@ func SettingsFromConfig(cfg Config) map[string]string {
 		KeyDeviceListUsername:       cfg.DeviceList.Username,
 		KeyDeviceListPassword:       cfg.DeviceList.Password,
 		KeyDeviceListTLSFingerprint: cfg.DeviceList.TLSFingerprint,
+		KeyTimezone:                 cfg.Timezone,
 	}
 }
 
@@ -141,4 +145,26 @@ func SeedSettingsIfEmpty(ctx context.Context, store SettingsStore, cfg Config) (
 		}
 	}
 	return true, nil
+}
+
+// SeedMissingSettings fills in any individual settings keys from cfg that are
+// absent from an already-populated store, leaving keys already present
+// untouched. SeedSettingsIfEmpty only seeds on a completely empty table (a
+// fresh install); this lets a setting introduced later — like KeyTimezone —
+// reach an existing install on upgrade instead of silently staying unset in
+// the DB that pvs-api actually serves from.
+func SeedMissingSettings(ctx context.Context, store SettingsStore, cfg Config) error {
+	existing, err := store.Settings(ctx)
+	if err != nil {
+		return fmt.Errorf("read settings: %w", err)
+	}
+	for key, val := range SettingsFromConfig(cfg) {
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		if err := store.SetSetting(ctx, key, val); err != nil {
+			return fmt.Errorf("seed setting %q: %w", key, err)
+		}
+	}
+	return nil
 }

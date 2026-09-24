@@ -67,6 +67,12 @@ type Config struct {
 	ReconnectMaxInterval     Duration         `yaml:"reconnect_max_interval"`
 	StaleThreshold           Duration         `yaml:"stale_threshold"`
 	DeviceList               DeviceListConfig `yaml:"device_list"`
+	// Timezone is the IANA zone name (e.g. "America/Los_Angeles") of the site
+	// where the PVS6 is installed. pvs-ui uses it to bucket and label charts
+	// by the site's calendar day regardless of the viewing browser's own
+	// timezone (see #96). Defaults to the detected system timezone; set this
+	// explicitly if pvs-monitor doesn't run on the same site as the PVS6.
+	Timezone string `yaml:"timezone,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -83,7 +89,26 @@ func Default() Config {
 			Interval: Duration(60 * time.Second),
 			Username: "ssm_owner",
 		},
+		Timezone: systemTimezone(),
 	}
+}
+
+// systemTimezone best-effort detects the IANA zone name of the host running
+// this process, so a fresh install reports the site's actual timezone
+// without needing manual configuration. Returns "" if detection fails.
+func systemTimezone() string {
+	if tz := os.Getenv("TZ"); tz != "" {
+		return tz
+	}
+	// /etc/localtime is conventionally a symlink into the zoneinfo database
+	// on Linux and macOS; its target's tail is the IANA zone name.
+	if target, err := os.Readlink("/etc/localtime"); err == nil {
+		const marker = "zoneinfo/"
+		if i := strings.Index(target, marker); i >= 0 {
+			return target[i+len(marker):]
+		}
+	}
+	return ""
 }
 
 // Load reads the config file at path, returning Default() if the file does

@@ -3,6 +3,7 @@
 import { fmt1, fmtKWh, setValue } from './display.js';
 import { state } from './state.js';
 import { prefillEventRange } from './events.js';
+import { zonedParts, zonedTimeToUtcMs } from './tz.js';
 
 // ── Chart-selection → create-event button ───────────────────────
 let pendingSelection = null;
@@ -143,7 +144,10 @@ export function buildChartOptions(series, rangeLabel, since, until, events = [])
   const grid  = series.map(p => [p.t, gridPoint(p)]);
 
   return {
-    time: { useUTC: false },
+    // Render the axis and tooltips in the PVS6 site's timezone (see #96) so
+    // they read as the same "day" the range buttons below bucket by. Falls
+    // back to the browser's own timezone when the site hasn't set one.
+    time: state.siteTimezone ? { timezone: state.siteTimezone } : { useUTC: false },
     chart: {
       backgroundColor: 'transparent',
       style: { fontFamily: 'inherit', color: '#f1f5f9' },
@@ -405,13 +409,20 @@ export function renderChart(series, rangeLabel, since, until, rangeName, events 
 }
 
 // ── Range resolution ──────────────────────────────────────────
+// "Today"/"this week"/etc. bucket by the PVS6 site's calendar day, not the
+// viewing browser's (see #96) — a chart pulled up from across timezones
+// should still split at the site's midnight, not the viewer's. Every date
+// label below is formatted in the same zone so the picker and axis agree.
+// state.siteTimezone is undefined until it loads (or if the site hasn't
+// configured one), in which case these all fall back to the browser's own
+// timezone — the pre-existing behavior.
 function fmtDate(d) {
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: state.siteTimezone });
 }
 
 function fmtDateTime(d) {
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: state.siteTimezone }) +
+    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: state.siteTimezone });
 }
 
 function dateRange(sinceMs, untilMs) {
@@ -422,26 +433,27 @@ function dateTimeRange(sinceMs, untilMs) {
   return fmtDateTime(new Date(sinceMs)) + ' – ' + fmtDateTime(new Date(untilMs));
 }
 
+// Epoch seconds for local midnight (y, m, d) in the site's timezone.
+function siteMidnight(y, m, d) {
+  return Math.floor(zonedTimeToUtcMs(y, m, d, 0, 0, 0, state.siteTimezone) / 1000);
+}
+
 export function resolveRange(name, customSince, customUntil) {
   const now   = new Date();
-  const y     = now.getFullYear();
-  const m     = now.getMonth();
-  const d     = now.getDate();
-  const today = new Date(y, m, d);
+  const p     = zonedParts(now, state.siteTimezone);
   const until = Math.floor(now / 1000);
 
   switch (name) {
     case 'today':
-      return { since: Math.floor(today / 1000), until, label: 'Today' };
+      return { since: siteMidnight(p.y, p.m, p.d), until, label: 'Today' };
     case 'this_week': {
-      const dow = now.getDay();
-      const s   = Math.floor(new Date(y, m, d - dow) / 1000);
+      const s = siteMidnight(p.y, p.m, p.d - p.dow);
       return { since: s, until, label: dateRange(s * 1000, until * 1000) };
     }
     case 'this_month':
-      return { since: Math.floor(new Date(y, m, 1) / 1000), until, label: now.toLocaleDateString([], { month: 'long', year: 'numeric' }) };
+      return { since: siteMidnight(p.y, p.m, 1), until, label: now.toLocaleDateString([], { month: 'long', year: 'numeric', timeZone: state.siteTimezone }) };
     case 'this_year':
-      return { since: Math.floor(new Date(y, 0, 1) / 1000), until, label: String(y) };
+      return { since: siteMidnight(p.y, 0, 1), until, label: String(p.y) };
     case 'past_24h': {
       const s = until - 86400;
       return { since: s, until, label: dateRange(s * 1000, until * 1000) };
@@ -455,20 +467,22 @@ export function resolveRange(name, customSince, customUntil) {
       return { since: s, until, label: dateRange(s * 1000, until * 1000) };
     }
     case 'past_year': {
-      const s = Math.floor(new Date(y - 1, m, d) / 1000);
+      const s = siteMidnight(p.y - 1, p.m, p.d);
       return { since: s, until, label: dateRange(s * 1000, until * 1000) };
     }
     case 'lifetime':
       return { since: 0, until, label: 'Lifetime' };
     case 'custom': {
-      // datetime-local values carry an explicit time, so use them as-is rather
-      // than padding the end to end-of-day as the old date-only inputs required.
+      // datetime-local inputs carry no timezone of their own — the browser
+      // always interprets them as the viewer's local wall-clock time, so
+      // there's no site timezone to apply here. Used as-is rather than
+      // padding the end to end-of-day as the old date-only inputs required.
       const s = Math.floor(new Date(customSince) / 1000);
       const u = Math.floor(new Date(customUntil) / 1000);
       return { since: s, until: u, label: dateTimeRange(s * 1000, u * 1000) };
     }
     default:
-      return { since: Math.floor(today / 1000), until, label: 'Today' };
+      return { since: siteMidnight(p.y, p.m, p.d), until, label: 'Today' };
   }
 }
 
@@ -476,17 +490,18 @@ export function resolveRange(name, customSince, customUntil) {
 function shiftLabel(name, since, until) {
   const s = new Date(since * 1000);
   const u = new Date(until * 1000);
-  const fmtDate = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const tz      = state.siteTimezone;
+  const fmtDate = (d) => d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz });
   const range   = () => fmtDate(s) + ' – ' + fmtDate(u);
   switch (name) {
     case 'today':
-      return s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      return s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: tz });
     case 'this_week':
       return fmtDate(s) + ' – ' + fmtDate(u);
     case 'this_month':
-      return s.toLocaleDateString([], { month: 'long', year: 'numeric' });
+      return s.toLocaleDateString([], { month: 'long', year: 'numeric', timeZone: tz });
     case 'this_year':
-      return String(s.getFullYear());
+      return String(zonedParts(s, tz).y);
     default:
       return range();
   }
@@ -560,20 +575,18 @@ export function computeShift(name, since, until, direction) {
     case 'past_7d':
       return { since: since + d * 7 * 86400, until: until + d * 7 * 86400 };
     case 'this_month': {
-      const s = new Date(sinceDate);
-      s.setMonth(s.getMonth() + d);
-      const e = new Date(s);
-      e.setMonth(e.getMonth() + 1);
-      return { since: Math.floor(s / 1000), until: Math.floor(e / 1000) - 1 };
+      const p = zonedParts(sinceDate, state.siteTimezone);
+      const s = siteMidnight(p.y, p.m + d, p.d);
+      const e = siteMidnight(p.y, p.m + d + 1, p.d);
+      return { since: s, until: e - 1 };
     }
     case 'past_30d':
       return { since: since + d * 30 * 86400, until: until + d * 30 * 86400 };
     case 'this_year': {
-      const s = new Date(sinceDate);
-      s.setFullYear(s.getFullYear() + d);
-      const e = new Date(s);
-      e.setFullYear(e.getFullYear() + 1);
-      return { since: Math.floor(s / 1000), until: Math.floor(e / 1000) - 1 };
+      const p = zonedParts(sinceDate, state.siteTimezone);
+      const s = siteMidnight(p.y + d, p.m, p.d);
+      const e = siteMidnight(p.y + d + 1, p.m, p.d);
+      return { since: s, until: e - 1 };
     }
     case 'past_year':
       return { since: since + d * 365 * 86400, until: until + d * 365 * 86400 };

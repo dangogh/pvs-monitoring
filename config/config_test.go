@@ -22,6 +22,11 @@ func TestDefault(t *testing.T) {
 	assert.Empty(t, cfg.DeviceList.Password)
 }
 
+func TestDefaultTimezoneFromEnv(t *testing.T) {
+	t.Setenv("TZ", "Europe/Stockholm")
+	assert.Equal(t, "Europe/Stockholm", Default().Timezone)
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "nonexistent.yaml"))
 	require.NoError(t, err)

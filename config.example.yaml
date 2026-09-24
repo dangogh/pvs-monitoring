@@ -15,6 +15,14 @@ reconnect_max_interval: 30s
 # genuine telemetry stall within a minute.
 stale_threshold: 60s
 
+# IANA timezone of the site where the PVS6 is installed (e.g. "America/Los_Angeles").
+# pvs-ui uses this to bucket and label charts by the site's calendar day, so
+# "Today" always means the site's day — regardless of which timezone the
+# dashboard is being viewed from. Auto-detected from the host running
+# pvs-monitor if left unset; set it explicitly if pvs-monitor doesn't run on
+# the same site as the PVS6.
+# timezone: America/Los_Angeles
+
 # Device list HTTP poller (optional — provides per-device data)
 # Leave password empty to disable.
 device_list:
