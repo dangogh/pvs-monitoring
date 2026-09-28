@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveRange, buildChartOptions, computeShift } from '../../cmd/pvs-ui/static/js/overview.js';
+import { state } from '../../cmd/pvs-ui/static/js/state.js';
 
 // Fix "now" so date-math tests are deterministic.
 // 2024-07-10 is a Wednesday (day-of-week 3).
@@ -76,6 +77,35 @@ describe('resolveRange', () => {
   });
 });
 
+// A configured site timezone should bucket by the site's calendar day, not
+// the test runner's own (UTC here) — this is the #96 fix: a viewer in a
+// different timezone from the PVS6 must still see the site's "today".
+describe('resolveRange with a configured site timezone', () => {
+  afterEach(() => { state.siteTimezone = undefined; });
+
+  it('today: midnight is the site\'s midnight, not the runner\'s', () => {
+    state.siteTimezone = 'America/Los_Angeles';
+    const { since, until } = resolveRange('today');
+    // 2024-07-10 00:00 PDT (UTC-7 in July) is 07:00 UTC — 7 hours after the
+    // runner's own midnight (2024-07-10T00:00:00Z), which is what the old
+    // browser-local bucketing would have used instead.
+    expect(since).toBe(Math.floor(new Date('2024-07-10T07:00:00Z') / 1000));
+    expect(until).toBeCloseTo(Math.floor(FIXED_NOW / 1000), -1);
+  });
+
+  it('this_week: Sunday midnight computed in the site zone', () => {
+    state.siteTimezone = 'America/Los_Angeles';
+    const { since } = resolveRange('this_week');
+    expect(since).toBe(Math.floor(new Date('2024-07-07T07:00:00Z') / 1000));
+  });
+
+  it('this_month: the 1st computed in the site zone', () => {
+    state.siteTimezone = 'America/Los_Angeles';
+    const { since } = resolveRange('this_month');
+    expect(since).toBe(Math.floor(new Date('2024-07-01T07:00:00Z') / 1000));
+  });
+});
+
 describe('buildChartOptions', () => {
   const series = [
     { t: 1000000, s: 1.2345, l: 0.987 },
@@ -98,6 +128,21 @@ describe('buildChartOptions', () => {
     const opts = buildChartOptions(series, 'Today', 1000, 2000);
     expect(opts.xAxis.min).toBe(1000 * 1000);
     expect(opts.xAxis.max).toBe(2000 * 1000);
+  });
+
+  it('renders in the browser timezone when no site timezone is configured', () => {
+    const opts = buildChartOptions(series, 'Today', 0, 1);
+    expect(opts.time).toEqual({ useUTC: false });
+  });
+
+  it('renders in the site timezone when one is configured (see #96)', () => {
+    state.siteTimezone = 'America/Los_Angeles';
+    try {
+      const opts = buildChartOptions(series, 'Today', 0, 1);
+      expect(opts.time).toEqual({ timezone: 'America/Los_Angeles' });
+    } finally {
+      state.siteTimezone = undefined;
+    }
   });
 
   it('production series is area type in amber', () => {
@@ -215,6 +260,18 @@ describe('computeShift — this_year (calendar year)', () => {
   it('next lands on 2025-01-01', () => {
     const r = computeShift('this_year', since, until, +1);
     expect(r.since).toBe(Math.floor(new Date(2025, 0, 1) / 1000));
+  });
+});
+
+describe('computeShift — this_month with a configured site timezone', () => {
+  afterEach(() => { state.siteTimezone = undefined; });
+
+  it('prev lands on the 1st in the site zone, not the runner\'s', () => {
+    state.siteTimezone = 'America/Los_Angeles';
+    const since = Math.floor(new Date('2024-07-01T07:00:00Z') / 1000); // Jul 1 00:00 PDT
+    const until = Math.floor(new Date(2024, 6, 10, 15) / 1000);
+    const r = computeShift('this_month', since, until, -1);
+    expect(r.since).toBe(Math.floor(new Date('2024-06-01T07:00:00Z') / 1000)); // Jun 1 00:00 PDT
   });
 });
 

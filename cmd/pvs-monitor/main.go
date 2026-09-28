@@ -99,6 +99,8 @@ func run(args []string, logOut io.Writer, ctx context.Context) error {
 		}
 		if seeded {
 			logger.Info("seeded settings table from config file")
+		} else if err := config.SeedMissingSettings(startupCtx, settingsStore, cfg); err != nil {
+			return err
 		}
 		cfg, err = config.LoadWithStore(startupCtx, cfgPath, settingsStore)
 		if err != nil {

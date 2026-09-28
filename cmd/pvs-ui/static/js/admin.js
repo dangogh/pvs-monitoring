@@ -8,6 +8,12 @@ import { state } from './state.js';
 // endpoints the rest of the UI already uses, so this adds no new backend.
 const GROUPS = [
   {
+    title: 'Site',
+    fields: [
+      { key: 'timezone', label: 'Timezone' },
+    ],
+  },
+  {
     title: 'Connection',
     fields: [
       { key: 'addr',                       label: 'PVS6 address' },

@@ -68,6 +68,7 @@ SQLite reads only              embeds static/index.html
 - Reconnect uses exponential backoff between `ReconnectInitialInterval` and `ReconnectMaxInterval`.
 - `DevicePoller` uses a two-step auth flow: GET `/auth?login` with Basic auth to get a session cookie, then use it for subsequent requests. Uses the same scheme as `cfg.URL` (plain HTTP on most PVS6 units). The HTTP client forces HTTP/1.1 via `TLSClientConfig.NextProtos` in case TLS is in use, to avoid a hang from Go's HTTP/2 + `InsecureSkipVerify`.
 - On startup, `DevicePoller` enables WebSocket telemetry via `POST /vars?set=/sys/telemetryws/enable=1`. PVS6 firmware 2025.10+ disables this by default and resets it on reboot.
+- `Config.Timezone` (IANA zone name, auto-detected from the host at `Default()` time via `TZ` or `/etc/localtime`) travels through the DB-backed settings table to `/api/config`, where `pvs-ui` reads it to bucket and label charts (`resolveRange`/`computeShift`/the Highcharts axis) by the *site's* calendar day rather than the viewing browser's (#96) — a Highcharts `time.timezone`/`Intl.DateTimeFormat`-based fix (`static/js/tz.js`), not a storage change: `readings.received_at`/`reading_time` were already plain Unix epoch seconds. `config.SeedMissingSettings` backfills the key into existing installs' settings tables on upgrade, since `SeedSettingsIfEmpty` only seeds a completely empty table.
 
 ### Running as a service
 
