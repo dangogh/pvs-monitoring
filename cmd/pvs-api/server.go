@@ -351,6 +351,7 @@ var configKeys = map[string]bool{
 	config.KeyDeviceListUsername:       true,
 	config.KeyDeviceListPassword:       true,
 	config.KeyDeviceListTLSFingerprint: true,
+	config.KeyTimezone:                 true,
 }
 
 func (s *apiServer) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {

@@ -62,6 +62,7 @@ func TestSettingsFromConfigRoundTrip(t *testing.T) {
 	cfg := Default()
 	cfg.Addr = "ws://rt:9002"
 	cfg.DeviceList.Password = "xyz99"
+	cfg.Timezone = "Europe/Stockholm"
 
 	m := SettingsFromConfig(cfg)
 
@@ -71,6 +72,7 @@ func TestSettingsFromConfigRoundTrip(t *testing.T) {
 	assert.Equal(t, cfg.StaleThreshold, got.StaleThreshold)
 	assert.Equal(t, cfg.DeviceList.Interval, got.DeviceList.Interval)
 	assert.Equal(t, cfg.DeviceList.Password, got.DeviceList.Password)
+	assert.Equal(t, cfg.Timezone, got.Timezone)
 }
 
 func TestSeedSettingsIfEmpty(t *testing.T) {
@@ -89,6 +91,29 @@ func TestSeedSettingsIfEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, seeded)
 	assert.Equal(t, before, len(store.setKeys))
+}
+
+func TestSeedMissingSettings(t *testing.T) {
+	store := newMemSettings()
+	// Simulate an existing install: settings already present, but from before
+	// KeyTimezone existed.
+	store.m[KeyAddr] = "ws://existing:9002"
+
+	cfg := Default()
+	cfg.Addr = "ws://from-file:9002" // present in store, must not be overwritten
+	cfg.Timezone = "Europe/Stockholm"
+
+	err := SeedMissingSettings(context.Background(), store, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "ws://existing:9002", store.m[KeyAddr], "existing key must be left untouched")
+	assert.Equal(t, "Europe/Stockholm", store.m[KeyTimezone], "missing key must be backfilled")
+
+	// Second call is a no-op: the key is now present.
+	before := len(store.setKeys)
+	cfg.Timezone = "America/Los_Angeles"
+	require.NoError(t, SeedMissingSettings(context.Background(), store, cfg))
+	assert.Equal(t, before, len(store.setKeys))
+	assert.Equal(t, "Europe/Stockholm", store.m[KeyTimezone])
 }
 
 func TestLoadWithStoreOverlaysFile(t *testing.T) {

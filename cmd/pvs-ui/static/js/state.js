@@ -4,6 +4,11 @@
 // No imports here; this module must remain dependency-free.
 export const state = {
   apiBase:         '',
+  // IANA timezone of the installed PVS6 site (e.g. "America/Los_Angeles"),
+  // fetched from /api/config at startup. undefined until loaded or if the
+  // site has none configured, in which case day/week/month bucketing and the
+  // chart fall back to the browser's own timezone.
+  siteTimezone:    undefined,
   chart:           null,
   chartRangeName:  null,
   isLive:          true,
