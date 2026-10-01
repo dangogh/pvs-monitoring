@@ -41,7 +41,7 @@ export function updateCurrent(c) {
   const updatedAt = new Date(c.updated_at);
   const age = Math.round((Date.now() - updatedAt.getTime()) / 1000);
   const stale = age > 120;
-  const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: state.siteTimezone });
   document.getElementById('now-timestamp').textContent = timeStr;
   document.getElementById('now-dot').classList.toggle('stale', stale);
 
@@ -433,6 +433,30 @@ function dateTimeRange(sinceMs, untilMs) {
   return fmtDateTime(new Date(sinceMs)) + ' – ' + fmtDateTime(new Date(untilMs));
 }
 
+function isMidnightBoundary(sec) {
+  const p = zonedParts(new Date(sec * 1000), state.siteTimezone);
+  return p.h === 0 && p.min === 0 && p.s === 0;
+}
+
+// True when [sinceSec, untilSec] spans whole day(s) in the site's timezone —
+// since is local midnight, and until is itself local midnight (an exclusive
+// end, as a custom picker gives) or one second before it (an inclusive end,
+// as the named ranges give). A range like this has no meaningful time-of-day
+// component, so its label should read as dates only, never midnight-to-
+// midnight timestamps.
+function isWholeDayRange(sinceSec, untilSec) {
+  return isMidnightBoundary(sinceSec) && (isMidnightBoundary(untilSec) || isMidnightBoundary(untilSec + 1));
+}
+
+// A range label that shows times only when the range actually has a
+// meaningful time-of-day component — whole-day ranges (see isWholeDayRange)
+// always read as a plain date range.
+function rangeLabel(sinceSec, untilSec) {
+  return isWholeDayRange(sinceSec, untilSec)
+    ? dateRange(sinceSec * 1000, untilSec * 1000)
+    : dateTimeRange(sinceSec * 1000, untilSec * 1000);
+}
+
 // Epoch seconds for local midnight (y, m, d) in the site's timezone.
 function siteMidnight(y, m, d) {
   return Math.floor(zonedTimeToUtcMs(y, m, d, 0, 0, 0, state.siteTimezone) / 1000);
@@ -479,7 +503,7 @@ export function resolveRange(name, customSince, customUntil) {
       // padding the end to end-of-day as the old date-only inputs required.
       const s = Math.floor(new Date(customSince) / 1000);
       const u = Math.floor(new Date(customUntil) / 1000);
-      return { since: s, until: u, label: dateTimeRange(s * 1000, u * 1000) };
+      return { since: s, until: u, label: rangeLabel(s, u) };
     }
     default:
       return { since: siteMidnight(p.y, p.m, p.d), until, label: 'Today' };
@@ -523,7 +547,14 @@ export async function fetchAndRender(since, until, label, rangeName) {
     updateCurrent(data.current);
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
-    updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
+    // Only recompute the label when the data clamped the start (chartSince !=
+    // since) — e.g. Lifetime reaching back before any data exists — where the
+    // exact clamped instant is worth showing. Otherwise keep the label already
+    // on screen (a clean date range for whole-day ranges) rather than
+    // replacing it with a full midnight-to-midnight timestamp range.
+    if (chartSince !== since) {
+      updateNavButtons(rangeLabel(chartSince, until));
+    }
     // Reflect the actual charted window into the pickers. For Lifetime (or any
     // range reaching before data exists) this reveals when monitoring began —
     // an important clue — instead of a blank or epoch start.

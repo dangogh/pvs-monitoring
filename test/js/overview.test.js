@@ -69,6 +69,13 @@ describe('resolveRange', () => {
     expect(since).toBe(Math.floor(new Date('2024-06-01T08:00') / 1000));
     expect(until).toBe(Math.floor(new Date('2024-06-30T17:30') / 1000));
     expect(label).toContain('–');
+    expect(label).toMatch(/\d{1,2}:\d{2}/); // a sub-day range still shows times
+  });
+
+  it('custom: collapses to a date-only label when it spans exactly whole days', () => {
+    const { label } = resolveRange('custom', '2024-06-01T00:00', '2024-06-03T00:00');
+    expect(label).toContain('–');
+    expect(label).not.toMatch(/\d{1,2}:\d{2}/); // whole days: no time-of-day shown
   });
 
   it('unknown range falls back to today', () => {

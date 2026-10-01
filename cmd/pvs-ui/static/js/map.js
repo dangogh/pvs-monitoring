@@ -265,7 +265,7 @@ function renderFrame(idx) {
       : `${label}: no data`;
   });
 
-  const label = new Date(frame.timeMS).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const label = new Date(frame.timeMS).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: state.siteTimezone });
 
   const scrubber = document.getElementById('anim-scrubber');
   if (scrubber) {
