@@ -41,7 +41,7 @@ export function updateCurrent(c) {
   const updatedAt = new Date(c.updated_at);
   const age = Math.round((Date.now() - updatedAt.getTime()) / 1000);
   const stale = age > 120;
-  const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const timeStr = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: state.siteTimezone });
   document.getElementById('now-timestamp').textContent = timeStr;
   document.getElementById('now-dot').classList.toggle('stale', stale);
 

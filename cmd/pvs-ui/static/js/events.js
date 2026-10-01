@@ -160,8 +160,9 @@ async function deleteEvent(id, btn) {
 }
 
 function fmtDateTime(d) {
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const tz = state.siteTimezone;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz }) +
+    ' ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
 }
 
 function fmtEventRange(startAt, endAt) {
