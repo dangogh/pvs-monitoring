@@ -523,7 +523,14 @@ export async function fetchAndRender(since, until, label, rangeName) {
     updateCurrent(data.current);
     updateSummary(data.summary, label);
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
-    updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
+    // Only recompute the label when the data clamped the start (chartSince !=
+    // since) — e.g. Lifetime reaching back before any data exists — where the
+    // exact clamped instant is worth showing. Otherwise keep the label already
+    // on screen (a clean date range for whole-day ranges) rather than
+    // replacing it with a full midnight-to-midnight timestamp range.
+    if (chartSince !== since) {
+      updateNavButtons(dateTimeRange(chartSince * 1000, until * 1000));
+    }
     // Reflect the actual charted window into the pickers. For Lifetime (or any
     // range reaching before data exists) this reveals when monitoring began —
     // an important clue — instead of a blank or epoch start.
