@@ -1,8 +1,11 @@
 name: Bump Version
 
 # Manually tap "Run workflow" (bump defaults to patch) to cut the next
-# release without a local git checkout: this pushes the next vX.Y.Z tag,
-# which triggers release.yml the same as pushing a tag by hand.
+# release without a local git checkout: this pushes the next vX.Y.Z tag and
+# explicitly dispatches release.yml for it. The dispatch is necessary: a
+# push made with the default GITHUB_TOKEN does not trigger other workflows'
+# push events (GitHub's anti-recursion rule), so release.yml would never
+# see this tag land on its own.
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -51,3 +55,8 @@ jobs:
         run: |
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Trigger the release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --ref "${{ steps.version.outputs.tag }}"
