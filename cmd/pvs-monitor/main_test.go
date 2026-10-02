@@ -63,7 +63,17 @@ func TestRunWithDB(t *testing.T) {
 }
 
 func TestRunBadDBPathReturnsError(t *testing.T) {
-	err := run([]string{"--db", "/nonexistent/path/that/cannot/be/created/readings.db"}, io.Discard, cancelledCtx())
+	// A regular file where a directory is needed makes the path uncreatable
+	// regardless of the OS user's privilege level — even root can't mkdir
+	// through an existing file (ENOTDIR). A path under a merely-missing
+	// directory doesn't work for this: sqlite.Open MkdirAlls its parent, so
+	// root (which can create directories anywhere on a writable filesystem)
+	// would sail right through and the test would pass or fail depending on
+	// who's running it.
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+
+	err := run([]string{"--db", filepath.Join(blocker, "readings.db")}, io.Discard, cancelledCtx())
 	assert.Error(t, err)
 }
 
