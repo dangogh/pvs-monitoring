@@ -86,6 +86,76 @@ export function updateSummary(s, label) {
   netCard.setAttribute('aria-label', (exporting ? 'Net energy exported: ' : 'Net energy imported: ') + fmtKWh(Math.abs(net)) + ' kilowatt-hours');
 }
 
+// ── Historical comparison ───────────────────────────────────────
+// "vs 1yr ago: 38.1 kWh (+11%)" under the Produced/Consumed/Net cards, for
+// the rolling-window ranges only (past_7d/past_30d/past_year) — there, "the
+// same window, shifted back a year" is well-defined. Calendar-anchored
+// ranges (Today, This Week, …) and Custom are skipped: a year-back shift of
+// "This Week" or an arbitrary custom range isn't a like-for-like comparison.
+const COMPARABLE_RANGES = new Set(['past_7d', 'past_30d', 'past_year']);
+const MAX_COMPARE_YEARS = 5;
+
+// Shift an epoch-seconds instant back `years` calendar years in the site's
+// timezone (DST-aware via zonedTimeToUtcMs), preserving time-of-day so a
+// rolling window's length and "as-of" instant both carry over.
+function shiftYears(sec, years) {
+  const p = zonedParts(new Date(sec * 1000), state.siteTimezone);
+  return Math.floor(zonedTimeToUtcMs(p.y - years, p.m, p.d, p.h, p.min, p.s, state.siteTimezone) / 1000);
+}
+
+// Fetches the same [since, until] window shifted back 1, 2, … years, stopping
+// once a shifted window predates all recorded data or MAX_COMPARE_YEARS is
+// hit. A fetch failure stops the walk (older years are even less likely to
+// have data); earliest_at tells us when to stop without a dedicated endpoint.
+async function fetchYearComparisons(since, until) {
+  const results = [];
+  for (let years = 1; years <= MAX_COMPARE_YEARS; years++) {
+    const s = shiftYears(since, years);
+    const u = shiftYears(until, years);
+    try {
+      const resp = await fetch(state.apiBase + '/api/data?since=' + s + '&until=' + u);
+      if (!resp.ok) break;
+      const data = await resp.json();
+      const earliestSec = data.earliest_at ? Math.floor(new Date(data.earliest_at) / 1000) : null;
+      if (earliestSec != null && earliestSec > u) break; // no data this far back yet
+      results.push({ years, summary: data.summary });
+    } catch (_) {
+      break;
+    }
+  }
+  return results;
+}
+
+function fmtPctChange(current, historical) {
+  if (!historical) return '';
+  const pct = ((current - historical) / Math.abs(historical)) * 100;
+  return ' (' + (pct > 0 ? '+' : '') + pct.toFixed(0) + '%)';
+}
+
+function compareText(current, comparisons, key) {
+  return comparisons
+    .map(c => (c.years === 1 ? '1yr ago' : c.years + 'yr ago') + ': ' +
+      fmtKWh(c.summary[key]) + ' kWh' + fmtPctChange(current, c.summary[key]))
+    .join(' · ');
+}
+
+// Updates the "vs history" line under the Produced/Consumed/Net cards.
+// Pass a falsy comparisons to clear it (e.g. the newly selected range isn't
+// one of COMPARABLE_RANGES).
+export function updateComparison(current, comparisons) {
+  const solarEl = document.getElementById('sum-solar-compare');
+  const loadEl  = document.getElementById('sum-load-compare');
+  const netEl   = document.getElementById('sum-net-compare');
+  if (!solarEl || !loadEl || !netEl) return;
+  if (!comparisons || comparisons.length === 0) {
+    solarEl.textContent = loadEl.textContent = netEl.textContent = '';
+    return;
+  }
+  solarEl.textContent = compareText(current.solar_kwh, comparisons, 'solar_kwh');
+  loadEl.textContent  = compareText(current.load_kwh,  comparisons, 'load_kwh');
+  netEl.textContent   = compareText(current.net_kwh,   comparisons, 'net_kwh');
+}
+
 // ── Maintenance event plot bands ──────────────────────────────
 const EVENT_COLORS = {
   panel_cleaning: 'rgba(52, 211, 153, 0.12)',
@@ -532,6 +602,10 @@ function shiftLabel(name, since, until) {
 }
 
 // ── Fetch and render ──────────────────────────────────────────
+// Guards the async historical-comparison fetch against a stale response
+// landing after the user has already switched ranges again.
+let _compareToken = 0;
+
 export async function fetchAndRender(since, until, label, rangeName) {
   const container = document.getElementById('chart-container');
   const overlay = document.createElement('div');
@@ -546,6 +620,15 @@ export async function fetchAndRender(since, until, label, rangeName) {
 
     updateCurrent(data.current);
     updateSummary(data.summary, label);
+    if (COMPARABLE_RANGES.has(rangeName)) {
+      const token = ++_compareToken;
+      fetchYearComparisons(since, until).then(comparisons => {
+        if (token === _compareToken) updateComparison(data.summary, comparisons);
+      });
+    } else {
+      _compareToken++; // invalidate any comparison fetch still in flight
+      updateComparison(null, null);
+    }
     const chartSince = data.earliest_at ? Math.max(since, Math.floor(new Date(data.earliest_at) / 1000)) : since;
     // Only recompute the label when the data clamped the start (chartSince !=
     // since) — e.g. Lifetime reaching back before any data exists — where the
