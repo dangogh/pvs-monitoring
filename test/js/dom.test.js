@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { updateCurrent, updateSummary } from '../../cmd/pvs-ui/static/js/overview.js';
+import { updateCurrent, updateSummary, updateComparison } from '../../cmd/pvs-ui/static/js/overview.js';
 
 // jsdom environment is configured in vitest.config.js
 
@@ -16,10 +16,10 @@ function setupDOM() {
     <span id="now-dot"></span>
     <span id="status"></span>
     <span id="period-label"></span>
-    <div class="summary-card"><span id="sum-solar"></span><span class="summary-unit"></span></div>
-    <div class="summary-card"><span id="sum-load"></span><span class="summary-unit"></span></div>
+    <div class="summary-card"><span id="sum-solar"></span><span class="summary-unit"></span><span id="sum-solar-compare"></span></div>
+    <div class="summary-card"><span id="sum-load"></span><span class="summary-unit"></span><span id="sum-load-compare"></span></div>
     <div class="summary-card"><span id="sum-avg"></span><span class="summary-unit"></span></div>
-    <div class="summary-card" id="sum-net-card"><span id="sum-net-label">Net</span><span class="summary-row"><span id="sum-net"></span><span id="sum-net-arrow"></span></span><span class="summary-unit">kWh exported</span></div>
+    <div class="summary-card" id="sum-net-card"><span id="sum-net-label">Net</span><span class="summary-row"><span id="sum-net"></span><span id="sum-net-arrow"></span></span><span class="summary-unit">kWh exported</span><span id="sum-net-compare"></span></div>
   `;
 }
 
@@ -136,5 +136,47 @@ describe('updateSummary', () => {
     expect(document.getElementById('sum-net-label').textContent).toBe('Net Import');
     expect(document.getElementById('sum-net-arrow').textContent).toBe('↓');
     expect(card.getAttribute('aria-label')).toContain('Net energy imported');
+  });
+});
+
+describe('updateComparison', () => {
+  const current = { solar_kwh: 44.0, load_kwh: 30.0, net_kwh: -14.0 };
+
+  it('clears all three lines when comparisons is falsy', () => {
+    updateComparison(current, [{ years: 1, summary: { solar_kwh: 1, load_kwh: 1, net_kwh: 1 } }]);
+    updateComparison(current, null);
+    expect(document.getElementById('sum-solar-compare').textContent).toBe('');
+    expect(document.getElementById('sum-load-compare').textContent).toBe('');
+    expect(document.getElementById('sum-net-compare').textContent).toBe('');
+  });
+
+  it('clears all three lines when comparisons is an empty array', () => {
+    updateComparison(current, []);
+    expect(document.getElementById('sum-solar-compare').textContent).toBe('');
+  });
+
+  it('formats a single year with a percent change', () => {
+    updateComparison(current, [{ years: 1, summary: { solar_kwh: 40.0, load_kwh: 30.0, net_kwh: -10.0 } }]);
+    expect(document.getElementById('sum-solar-compare').textContent).toBe('1yr ago: 40.00 kWh (+10%)');
+    expect(document.getElementById('sum-load-compare').textContent).toBe('1yr ago: 30.00 kWh (0%)');
+  });
+
+  it('shows a minus sign when this period is lower than history', () => {
+    updateComparison(current, [{ years: 1, summary: { solar_kwh: 55.0, load_kwh: 30.0, net_kwh: -10.0 } }]);
+    expect(document.getElementById('sum-solar-compare').textContent).toBe('1yr ago: 55.00 kWh (-20%)');
+  });
+
+  it('joins multiple years with a separator', () => {
+    updateComparison(current, [
+      { years: 1, summary: { solar_kwh: 40.0, load_kwh: 30.0, net_kwh: -10.0 } },
+      { years: 2, summary: { solar_kwh: 44.0, load_kwh: 30.0, net_kwh: -14.0 } },
+    ]);
+    expect(document.getElementById('sum-solar-compare').textContent)
+      .toBe('1yr ago: 40.00 kWh (+10%) · 2yr ago: 44.00 kWh (0%)');
+  });
+
+  it('omits the percent change when the historical value is zero', () => {
+    updateComparison(current, [{ years: 1, summary: { solar_kwh: 0, load_kwh: 30.0, net_kwh: -10.0 } }]);
+    expect(document.getElementById('sum-solar-compare').textContent).toBe('1yr ago: 0.00 kWh');
   });
 });
