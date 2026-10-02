@@ -37,6 +37,21 @@ export async function loadPanels() {
   }
 }
 
+// Compares two column values the same way regardless of column: numeric
+// columns subtract, string columns use a numeric-aware localeCompare (so
+// "Panel 10" sorts after "Panel 2"), negated for descending order.
+export function compareValues(av, bv, desc) {
+  const cmp = typeof av === 'string' ? av.localeCompare(bv, undefined, { numeric: true }) : av - bv;
+  return desc ? -cmp : cmp;
+}
+
+// Sorts panel data by a named column. `cols` maps column name to a
+// (datum) => value accessor; `sortCol`/`sortAsc` pick which column and
+// direction. Pure — takes no state, so it's unit-testable without a DOM.
+export function sortPanels(data, cols, sortCol, sortAsc) {
+  return [...data].sort((a, b) => compareValues(cols[sortCol](a), cols[sortCol](b), !sortAsc));
+}
+
 export function renderPanels() {
   const ctx = peerMedians(state.panelsData, state.serialToGroup);
   const relOf = d => peerRatio(d, ctx, state.serialToGroup);
@@ -55,12 +70,7 @@ export function renderPanels() {
     temp_c:       d => d.temp_c,
   };
 
-  const sorted = [...state.panelsData].sort((a, b) => {
-    const av = cols[state.sortCol](a);
-    const bv = cols[state.sortCol](b);
-    const cmp = typeof av === 'string' ? av.localeCompare(bv, undefined, { numeric: true }) : av - bv;
-    return state.sortAsc ? cmp : -cmp;
-  });
+  const sorted = sortPanels(state.panelsData, cols, state.sortCol, state.sortAsc);
 
   const tbody = document.getElementById('panels-tbody');
   const rows = [];
