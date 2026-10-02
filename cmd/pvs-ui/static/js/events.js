@@ -251,10 +251,16 @@ export function initEvents() {
         body:    JSON.stringify(body),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const saved = await resp.json();
       await fetchMaintenanceEvents();
       renderEventsTable();
       exitEdit();
-      statusEl.textContent = editing ? 'Event updated.' : 'Event recorded.';
+      // Echo back what was actually saved (from the server's response, not
+      // the form) so a typo'd date is caught immediately instead of only
+      // being noticed later buried in a long events list.
+      const savedRange = fmtEventRange(saved.start_at, saved.end_at);
+      const savedType  = fmtEventType(saved.event_type);
+      statusEl.textContent = (editing ? 'Event updated: ' : 'Event recorded: ') + savedRange + ' (' + savedType + ')';
       statusEl.className = 'event-form-status ok';
     } catch (err) {
       statusEl.textContent = 'Error: ' + err.message;
