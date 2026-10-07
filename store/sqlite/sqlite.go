@@ -44,10 +44,16 @@ var migrations = []string{
 	mustSQL("sql/migrations/007_maintenance_event_timestamps.sql"),
 	mustSQL("sql/migrations/008_inverter_serial_received_index.sql"),
 	mustSQL("sql/migrations/009_settings.sql"),
+	mustSQL("sql/migrations/010_readings_source.sql"),
 }
 
 var (
 	sqlInsertReading          = mustSQL("sql/queries/insert_reading.sql")
+	sqlInsertReadingSource    = mustSQL("sql/queries/insert_reading_source.sql")
+	sqlDeleteHourlyRange      = mustSQL("sql/queries/delete_hourly_range.sql")
+	sqlDeleteDailyRange       = mustSQL("sql/queries/delete_daily_range.sql")
+	sqlRebuildHourlyRange     = mustSQL("sql/queries/rebuild_hourly_range.sql")
+	sqlRebuildDailyRange      = mustSQL("sql/queries/rebuild_daily_range.sql")
 	sqlLatestReading          = mustSQL("sql/queries/latest_reading.sql")
 	sqlEarliestReading        = mustSQL("sql/queries/earliest_reading_at.sql")
 	sqlAveragePower           = mustSQL("sql/queries/average_power.sql")
@@ -467,6 +473,60 @@ func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// SaveBackfilledReading inserts a reading reconstructed after the fact, tagged
+// with its provenance (e.g. "meter-1min"). Unlike SaveReading it deliberately
+// does NOT touch the rollups: the incremental upserts keep an unweighted running
+// mean, which would drown backfilled minutes beside real 1 Hz samples in the
+// same bucket. Callers insert the rows, then call RebuildRollups over the range.
+func (s *Store) SaveBackfilledReading(ctx context.Context, r *pvs.Reading, source string) error {
+	_, err := s.db.ExecContext(ctx, sqlInsertReadingSource,
+		r.ReceivedAt.Unix(), r.Time.Unix(),
+		r.SolarKW, r.LoadKW, r.NetKW,
+		r.SolarKWh, r.LoadKWh, r.NetKWh, source,
+	)
+	return err
+}
+
+// RebuildRollups recomputes readings_hourly and readings_daily from raw readings
+// for every bucket overlapping [since, until), weighting each row by the time it
+// covers. Buckets are deleted and rebuilt rather than upserted into, because a
+// bucket holding a mix of 1 Hz and 1/min rows cannot be corrected incrementally.
+//
+// The range is widened to whole bucket boundaries so a partially-overlapped
+// bucket is recomputed from all of its rows, not just the ones inside the range.
+func (s *Store) RebuildRollups(ctx context.Context, since, until time.Time) error {
+	if until.Before(since) {
+		return fmt.Errorf("until (%s) is before since (%s)", until, since)
+	}
+	type span struct {
+		size         int64
+		del, rebuild string
+	}
+	for _, sp := range []span{
+		{3600, sqlDeleteHourlyRange, sqlRebuildHourlyRange},
+		{86400, sqlDeleteDailyRange, sqlRebuildDailyRange},
+	} {
+		lo := (since.Unix() / sp.size) * sp.size
+		hi := ((until.Unix() / sp.size) + 1) * sp.size
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, sp.del, lo, hi); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return fmt.Errorf("delete rollup buckets: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, sp.rebuild, lo, hi); err != nil {
+			tx.Rollback() //nolint:errcheck
+			return fmt.Errorf("rebuild rollup buckets: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) LatestReading(ctx context.Context) (*pvs.Reading, error) {

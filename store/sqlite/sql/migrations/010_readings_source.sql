@@ -1,0 +1,14 @@
+-- Provenance for rows in `readings`.
+--
+-- NULL means a live 1 Hz sample taken from the PVS6 WebSocket power stream --
+-- the only kind that existed before this column, which is why NULL and not a
+-- default string: the 8.1M existing rows are all live, and a nullable column
+-- costs nothing to add.
+--
+-- Any non-NULL value marks a row reconstructed after the fact. 'meter-1min'
+-- means it was derived from the 1/min Power Meter payloads in
+-- aux_device_readings by cmd/pvs-backfill, which is how the 2026-09-22
+-- telemetry stall was repaired. Such rows carry honest measurements but at
+-- 1/min resolution, so instantaneous load detail is approximate even though
+-- energy totals are sound.
+ALTER TABLE readings ADD COLUMN source TEXT;

@@ -909,3 +909,77 @@ func TestOpenReadOnlyTimesOutWhenNeverReady(t *testing.T) {
 	_, statErr := os.Stat(path)
 	assert.True(t, os.IsNotExist(statErr), "read-only open must not create the DB file")
 }
+
+// TestRebuildRollupsWeightsByCoverage is the point of migration 010: a bucket
+// holding a mix of 1 Hz and backfilled 1/min rows must average by the time each
+// row covers, not by row count. average_power_rollup.sql combines buckets as
+// SUM(avg*sample_count)/SUM(sample_count), so an unweighted count would make a
+// backfilled hour count for 1/60th of a real one.
+func TestRebuildRollupsWeightsByCoverage(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+
+	// 60 live 1 Hz samples at 10 kW -> 60 seconds of coverage.
+	for i := 0; i < 60; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    10, LoadKW: 10, NetKW: 0,
+			SolarKWh: 100, LoadKWh: 100,
+		}))
+	}
+	// 10 backfilled 1/min samples at 0 kW -> 600 seconds of coverage.
+	for i := 0; i < 10; i++ {
+		require.NoError(t, s.SaveBackfilledReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(5+i) * time.Minute),
+			Time:       base.Add(time.Duration(5+i) * time.Minute),
+			SolarKW:    0, LoadKW: 0, NetKW: 0,
+			SolarKWh: 100, LoadKWh: 100,
+		}, "meter-1min"))
+	}
+
+	require.NoError(t, s.RebuildRollups(ctx, base, base.Add(time.Hour)))
+
+	var avgSolar float64
+	var sampleCount int64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw, sample_count FROM readings_hourly WHERE bucket = ?`,
+		base.Unix()).Scan(&avgSolar, &sampleCount))
+
+	// Coverage: 60s at 10 kW + 600s at 0 kW = 660s, mean 10*60/660 = 0.909 kW.
+	// An unweighted row-count mean would have given 10*60/70 = 8.57 kW.
+	assert.Equal(t, int64(660), sampleCount, "sample_count must be seconds of coverage")
+	assert.InDelta(t, 0.909, avgSolar, 0.001)
+}
+
+// TestRebuildRollupsUnweightedWhenAllLive proves the weighted form reduces to
+// the previous behaviour when nothing is backfilled.
+func TestRebuildRollupsUnweightedWhenAllLive(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	for i := 0; i < 10; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    float64(i), LoadKW: 0, NetKW: 0,
+			SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+	require.NoError(t, s.RebuildRollups(ctx, base, base.Add(time.Hour)))
+
+	var avgSolar float64
+	var sampleCount int64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw, sample_count FROM readings_hourly WHERE bucket = ?`,
+		base.Unix()).Scan(&avgSolar, &sampleCount))
+	assert.Equal(t, int64(10), sampleCount)
+	assert.InDelta(t, 4.5, avgSolar, 0.0001) // mean of 0..9
+}
