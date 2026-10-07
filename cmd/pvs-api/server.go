@@ -109,15 +109,22 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	backfilled, err := s.store.BackfilledSeconds(r.Context(), since, until)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	resp := pvs.DataResponse{
 		Since: since,
 		Until: until,
 		Summary: pvs.SummaryData{
-			SolarKWh:   energy.SolarKWh,
-			LoadKWh:    energy.LoadKWh,
-			NetKWh:     energy.NetKWh,
-			AvgSolarKW: avg.SolarKW,
-			AvgLoadKW:  avg.LoadKW,
+			SolarKWh:          energy.SolarKWh,
+			LoadKWh:           energy.LoadKWh,
+			NetKWh:            energy.NetKWh,
+			AvgSolarKW:        avg.SolarKW,
+			AvgLoadKW:         avg.LoadKW,
+			BackfilledSeconds: backfilled,
 		},
 		Series: toSeriesPoints(pts, bucket),
 	}

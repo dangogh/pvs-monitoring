@@ -54,6 +54,10 @@ type Store interface {
 	SaveReading(ctx context.Context, r *Reading) error
 	LatestReading(ctx context.Context) (*Reading, error)
 	EarliestReadingAt(ctx context.Context) (time.Time, error)
+	// BackfilledSeconds reports how many seconds of the range are covered by
+	// rows reconstructed after the fact rather than measured live at 1 Hz.
+	// Zero means the range is entirely measured data.
+	BackfilledSeconds(ctx context.Context, since, until time.Time) (int64, error)
 	AveragePower(ctx context.Context, since, until time.Time) (PowerAvg, error)
 	EnergyDelta(ctx context.Context, since, until time.Time) (EnergyDelta, error)
 	ReadingsSeries(ctx context.Context, since, until time.Time, bucketSeconds int64) ([]SeriesPoint, error)

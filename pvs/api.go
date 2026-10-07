@@ -35,6 +35,11 @@ type SummaryData struct {
 	NetKWh     float64 `json:"net_kwh"`
 	AvgSolarKW float64 `json:"avg_solar_kw"`
 	AvgLoadKW  float64 `json:"avg_load_kw"`
+	// BackfilledSeconds is how much of the range came from rows reconstructed
+	// from the 1/min meter payloads instead of the live 1 Hz stream (see
+	// cmd/pvs-backfill). Energy figures from such rows are sound; instantaneous
+	// power detail is approximate. Omitted when the range is all live data.
+	BackfilledSeconds int64 `json:"backfilled_seconds,omitempty"`
 }
 
 // SeriesJSON uses compact keys to minimise JSON payload size.

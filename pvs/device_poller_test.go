@@ -760,3 +760,7 @@ func TestDevicePollerTelemetryAuthFatalOnlyOnFirstCall(t *testing.T) {
 	assert.Greater(t, calls, 2, "poller should have kept running past the first failing tick")
 	assert.Error(t, err)
 }
+
+func (f *fakeDeviceStore) BackfilledSeconds(_ context.Context, _, _ time.Time) (int64, error) {
+	return 0, nil
+}

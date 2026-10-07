@@ -406,3 +406,7 @@ func TestMonitorReadTimeoutDefaultsWhenUnset(t *testing.T) {
 	m := NewMonitor("ws://test", config.Config{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	assert.Equal(t, defaultReadTimeout, m.readTimeout)
 }
+
+func (f *fakeStore) BackfilledSeconds(_ context.Context, _, _ time.Time) (int64, error) {
+	return 0, nil
+}

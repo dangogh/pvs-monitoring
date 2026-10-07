@@ -286,3 +286,49 @@ func TestParsePeriod(t *testing.T) {
 		})
 	}
 }
+
+func TestGetHistoryWarnsAboutBackfilledRange(t *testing.T) {
+	// A 10-hour range of which 5 hours were reconstructed from meter payloads.
+	api := &fakeAPI{data: DataResponse{
+		Summary: SummaryData{
+			SolarKWh: 40, LoadKWh: 30, AvgSolarKW: 4,
+			BackfilledSeconds: int64(5 * time.Hour / time.Second),
+		},
+	}}
+	res, _, err := getHistory(context.Background(), api, historyArgs{Start: "2026-09-22T00:00:00Z", End: "2026-09-22T10:00:00Z"})
+	require.NoError(t, err)
+
+	var out historyResult
+	decode(t, res, &out)
+	require.Len(t, out.Warnings, 1)
+	assert.Contains(t, out.Warnings[0], "50%")
+	assert.Contains(t, out.Warnings[0], "reconstructed")
+	assert.Contains(t, out.Warnings[0], "energy totals are reliable")
+}
+
+func TestGetHistoryNoBackfillWarningWhenAllLive(t *testing.T) {
+	api := &fakeAPI{data: DataResponse{
+		Summary: SummaryData{SolarKWh: 40, LoadKWh: 30, AvgSolarKW: 4},
+	}}
+	res, _, err := getHistory(context.Background(), api, historyArgs{Start: "2026-09-22T00:00:00Z", End: "2026-09-22T10:00:00Z"})
+	require.NoError(t, err)
+	var out historyResult
+	decode(t, res, &out)
+	assert.Empty(t, out.Warnings)
+}
+
+// The warnings list is a list because the conditions are independent; a
+// backfilled range with a counter regression must report both.
+func TestGetHistoryBackfillWarningCoexistsWithNegativeEnergy(t *testing.T) {
+	api := &fakeAPI{data: DataResponse{
+		Summary: SummaryData{
+			SolarKWh: -5, LoadKWh: 30,
+			BackfilledSeconds: int64(time.Hour / time.Second),
+		},
+	}}
+	res, _, err := getHistory(context.Background(), api, historyArgs{Start: "2026-09-22T00:00:00Z", End: "2026-09-22T10:00:00Z"})
+	require.NoError(t, err)
+	var out historyResult
+	decode(t, res, &out)
+	assert.Len(t, out.Warnings, 2)
+}
