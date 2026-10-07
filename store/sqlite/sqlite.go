@@ -45,6 +45,7 @@ var migrations = []string{
 	mustSQL("sql/migrations/008_inverter_serial_received_index.sql"),
 	mustSQL("sql/migrations/009_settings.sql"),
 	mustSQL("sql/migrations/010_readings_source.sql"),
+	mustSQL("sql/migrations/011_readings_source_index.sql"),
 }
 
 var (
@@ -54,6 +55,9 @@ var (
 	sqlDeleteDailyRange       = mustSQL("sql/queries/delete_daily_range.sql")
 	sqlRebuildHourlyRange     = mustSQL("sql/queries/rebuild_hourly_range.sql")
 	sqlRebuildDailyRange      = mustSQL("sql/queries/rebuild_daily_range.sql")
+	sqlReadingGaps            = mustSQL("sql/queries/reading_gaps.sql")
+	sqlMeterSamples           = mustSQL("sql/queries/meter_samples.sql")
+	sqlBackfilledSeconds      = mustSQL("sql/queries/backfilled_seconds.sql")
 	sqlLatestReading          = mustSQL("sql/queries/latest_reading.sql")
 	sqlEarliestReading        = mustSQL("sql/queries/earliest_reading_at.sql")
 	sqlAveragePower           = mustSQL("sql/queries/average_power.sql")
@@ -473,6 +477,75 @@ func (s *Store) SaveReading(ctx context.Context, r *pvs.Reading) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// BackfilledSeconds reports how many seconds of [since, until) are covered by
+// reconstructed rows rather than live 1 Hz samples. Zero means the range is
+// entirely measured data.
+func (s *Store) BackfilledSeconds(ctx context.Context, since, until time.Time) (int64, error) {
+	var secs int64
+	err := s.db.QueryRowContext(ctx, sqlBackfilledSeconds, since.Unix(), until.Unix()).Scan(&secs)
+	if err != nil {
+		return 0, fmt.Errorf("query backfilled seconds: %w", err)
+	}
+	return secs, nil
+}
+
+// ReadingGap is a hole in the 1 Hz readings stream. AuxSamples counts the Power
+// Meter payloads recorded inside it: non-zero means the gap is a telemetry stall
+// and can be reconstructed, zero means the PVS6 was off and the data is gone.
+type ReadingGap struct {
+	Start      time.Time
+	End        time.Time
+	AuxSamples int
+}
+
+// Recoverable reports whether the gap can be rebuilt from meter payloads.
+func (g ReadingGap) Recoverable() bool { return g.AuxSamples > 0 }
+
+// ReadingGaps returns gaps in the readings stream longer than minGap.
+func (s *Store) ReadingGaps(ctx context.Context, minGap time.Duration) ([]ReadingGap, error) {
+	rows, err := s.db.QueryContext(ctx, sqlReadingGaps, int64(minGap.Seconds()))
+	if err != nil {
+		return nil, fmt.Errorf("query reading gaps: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []ReadingGap
+	for rows.Next() {
+		var lo, hi, secs int64
+		var aux int
+		if err := rows.Scan(&lo, &hi, &secs, &aux); err != nil {
+			return nil, err
+		}
+		out = append(out, ReadingGap{Start: time.Unix(lo, 0), End: time.Unix(hi, 0), AuxSamples: aux})
+	}
+	return out, rows.Err()
+}
+
+// MeterSamples returns reading-shaped rows derived from the paired Power Meter
+// payloads over [since, until). Resolution is whatever the device poller
+// recorded, normally one sample per minute.
+func (s *Store) MeterSamples(ctx context.Context, since, until time.Time) ([]*pvs.Reading, error) {
+	lo, hi := since.Unix(), until.Unix()
+	rows, err := s.db.QueryContext(ctx, sqlMeterSamples, lo, hi, lo, hi)
+	if err != nil {
+		return nil, fmt.Errorf("query meter samples: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []*pvs.Reading
+	for rows.Next() {
+		var at int64
+		var r pvs.Reading
+		if err := rows.Scan(&at, &r.SolarKW, &r.LoadKW, &r.NetKW, &r.SolarKWh, &r.LoadKWh, &r.NetKWh); err != nil {
+			return nil, err
+		}
+		r.ReceivedAt = time.Unix(at, 0)
+		// The meter payload carries no separate reading time; the poll timestamp
+		// is the only clock available for a reconstructed row.
+		r.Time = r.ReceivedAt
+		out = append(out, &r)
+	}
+	return out, rows.Err()
 }
 
 // SaveBackfilledReading inserts a reading reconstructed after the fact, tagged

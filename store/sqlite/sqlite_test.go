@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -982,4 +983,78 @@ func TestRebuildRollupsUnweightedWhenAllLive(t *testing.T) {
 		base.Unix()).Scan(&avgSolar, &sampleCount))
 	assert.Equal(t, int64(10), sampleCount)
 	assert.InDelta(t, 4.5, avgSolar, 0.0001) // mean of 0..9
+}
+
+// meterPayload builds a Power Meter payload of the given subtype.
+func meterPayload(typ string, kw, kwh float64) string {
+	return fmt.Sprintf(`{"TYPE":%q,"STATE":"working","p_3phsum_kw":"%f","net_ltea_3phsum_kwh":"%f"}`, typ, kw, kwh)
+}
+
+// insertAux writes a paired P/C meter sample at t.
+func insertAux(t *testing.T, s *Store, at time.Time, solarKW, netKW, solarKWh, netKWh float64) {
+	t.Helper()
+	ctx := context.Background()
+	for _, m := range []struct {
+		typ     string
+		kw, kwh float64
+	}{
+		{"PVS5-METER-P", solarKW, solarKWh},
+		{"PVS5-METER-C", netKW, netKWh},
+	} {
+		_, err := s.db.ExecContext(ctx, sqlInsertAuxDevice, at.Unix(), "Power Meter", "M"+m.typ, meterPayload(m.typ, m.kw, m.kwh))
+		require.NoError(t, err)
+	}
+}
+
+func TestReadingGapsClassifiesByAuxCoverage(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	save := func(at time.Time) {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: at, Time: at, SolarKW: 1, LoadKW: 1, SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+	// Two gaps: the first has meter coverage, the second has none.
+	save(base)
+	save(base.Add(time.Hour))     // gap 1: base → +1h, meters present
+	save(base.Add(2 * time.Hour)) // gap 2: +1h → +2h, no meters
+	for i := 1; i < 60; i++ {
+		insertAux(t, s, base.Add(time.Duration(i)*time.Minute), 5, -2, 1000, -500)
+	}
+
+	gaps, err := s.ReadingGaps(ctx, 10*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, gaps, 2)
+
+	assert.True(t, gaps[0].Recoverable(), "gap with meter samples should be recoverable")
+	assert.Equal(t, 59, gaps[0].AuxSamples)
+	assert.False(t, gaps[1].Recoverable(), "gap without meter samples is permanent")
+	assert.Zero(t, gaps[1].AuxSamples)
+}
+
+func TestMeterSamplesMapsColumns(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	// Gross production 9 kW, net consumption -4 kW (exporting) => load 5 kW.
+	insertAux(t, s, base, 9, -4, 105000, -30000)
+
+	got, err := s.MeterSamples(ctx, base, base.Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	r := got[0]
+	assert.InDelta(t, 9.0, r.SolarKW, 0.0001)
+	assert.InDelta(t, 5.0, r.LoadKW, 0.0001, "load = gross production + net consumption")
+	assert.InDelta(t, -4.0, r.NetKW, 0.0001)
+	assert.InDelta(t, 105000.0, r.SolarKWh, 0.0001)
+	assert.InDelta(t, 75000.0, r.LoadKWh, 0.0001, "load counter = production + net counters")
+	assert.InDelta(t, -30000.0, r.NetKWh, 0.0001)
+	assert.Equal(t, base.Unix(), r.ReceivedAt.Unix())
 }

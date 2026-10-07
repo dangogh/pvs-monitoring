@@ -21,12 +21,15 @@ override_dh_auto_build:
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-monitor ./cmd/pvs-monitor
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-api ./cmd/pvs-api
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-ui ./cmd/pvs-ui
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-backfill ./cmd/pvs-backfill
 
 override_dh_auto_install:
 	# Install binaries
 	install -D -m 755 bin/pvs-monitor $(DESTDIR)/usr/bin/pvs-monitor
 	install -D -m 755 bin/pvs-api $(DESTDIR)/usr/bin/pvs-api
 	install -D -m 755 bin/pvs-ui $(DESTDIR)/usr/bin/pvs-ui
+	# One-shot repair tool, run by hand; no service unit.
+	install -D -m 755 bin/pvs-backfill $(DESTDIR)/usr/bin/pvs-backfill
 	
 	# Install systemd services
 	install -D -m 644 debian/pvs-monitor.service $(DESTDIR)/etc/systemd/system/pvs-monitor.service

@@ -15,6 +15,7 @@ build:
 	go build -ldflags="$(GO_LDFLAGS)" -o $(BIN_DIR)/pvs-mcp ./cmd/pvs-mcp
 	go build -ldflags="$(GO_LDFLAGS)" -o $(BIN_DIR)/pvs-api ./cmd/pvs-api
 	go build -ldflags="$(GO_LDFLAGS)" -o $(BIN_DIR)/pvs-ui ./cmd/pvs-ui
+	go build -ldflags="$(GO_LDFLAGS)" -o $(BIN_DIR)/pvs-backfill ./cmd/pvs-backfill
 
 test:
 	go test -race -coverprofile=coverage.out ./...
