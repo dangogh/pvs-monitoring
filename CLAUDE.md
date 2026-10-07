@@ -79,3 +79,11 @@ launchctl load ~/Library/LaunchAgents/com.dangogh.pvs-monitor.plist
 ```
 
 Logs: `~/.local/share/pvs-monitor/pvs-monitor.log`
+
+### Dead-man switch
+
+`pvs-heartbeat` (shipped to `/usr/bin`, driven by `pvs-heartbeat.timer` every 5 min as `pvs-monitoring`) pings healthchecks.io only while **both** data streams are fresh — `readings` within `READINGS_MAX_AGE` (900s) and `aux_device_readings` within `AUX_MAX_AGE` (1800s). Two streams because they fail independently: on 2026-09-22 the WebSocket power stream died for 58 hours while the device poller never missed a beat, and the reverse would blind panel health.
+
+Per-host config is `/etc/pvs-monitor/heartbeat.conf`, seeded by `postinst` from `/usr/share/pvs-monitoring/heartbeat.conf.default` (**never shipped under `/etc`** — that registers a conffile, and postinst touching one makes dpkg prompt on the next upgrade, which wedges the unattended updater). With no `HEARTBEAT_UUID` the script exits 0 silently, so the package is safe to install on a host that doesn't want monitoring.
+
+All output goes to the journal (`journalctl -u pvs-heartbeat`) and curl failures are reported rather than swallowed. The September outage was *detected* correctly within 15 minutes and still went unnoticed for 58 hours, because the old hand-installed cron entry discarded stdout and stderr — so there was no record of whether the alert had been sent.

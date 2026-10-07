@@ -35,6 +35,8 @@ override_dh_auto_install:
 	install -D -m 644 debian/pvs-monitor.service $(DESTDIR)/etc/systemd/system/pvs-monitor.service
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
+	install -D -m 644 debian/pvs-heartbeat.service $(DESTDIR)/etc/systemd/system/pvs-heartbeat.service
+	install -D -m 644 debian/pvs-heartbeat.timer $(DESTDIR)/etc/systemd/system/pvs-heartbeat.timer
 
 	# Install the example config. The seed copy that postinst turns into the
 	# live config.yaml on a fresh install goes under /usr/share, NOT /etc:
@@ -48,6 +50,13 @@ override_dh_auto_install:
 
 	# Install update script
 	install -D -m 755 pvs-update.sh $(DESTDIR)/usr/bin/pvs-update
+
+	# Dead-man switch. The seed for its per-host config goes under /usr/share for
+	# the same reason config.yaml's does: anything under /etc becomes a conffile,
+	# and postinst rewriting or removing one makes dpkg prompt on the next
+	# upgrade, which wedges the unattended cron updater.
+	install -D -m 755 pvs-heartbeat.sh $(DESTDIR)/usr/bin/pvs-heartbeat
+	install -D -m 644 heartbeat.conf.example $(DESTDIR)/usr/share/pvs-monitoring/heartbeat.conf.default
 
 	# Install sudoers drop-in for passwordless deployment
 	install -D -m 440 debian/pvs-monitor.sudoers $(DESTDIR)/etc/sudoers.d/pvs-monitor

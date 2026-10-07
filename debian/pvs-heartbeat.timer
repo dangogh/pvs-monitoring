@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the PVS6 dead-man switch every 5 minutes
+Documentation=https://github.com/dangogh/pvs-monitoring
+
+[Timer]
+OnCalendar=*:0/5
+# Fire once shortly after boot too, so a host that comes up with a dead monitor
+# does not wait for the next 5-minute boundary to say so.
+OnBootSec=2min
+AccuracySec=30s
+Unit=pvs-heartbeat.service
+
+[Install]
+WantedBy=timers.target
