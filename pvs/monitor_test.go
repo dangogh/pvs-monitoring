@@ -371,3 +371,38 @@ func TestReadingEnergy(t *testing.T) {
 		})
 	}
 }
+
+// blockingReader blocks on read until its context is done, simulating the
+// 2026-09-22 failure: a WebSocket that stays connected but delivers nothing.
+type blockingReader struct{ reads int }
+
+func (b *blockingReader) read(ctx context.Context, _ *notification) error {
+	b.reads++
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestMonitorReadTimeoutBreaksSilentConnection(t *testing.T) {
+	r := &blockingReader{}
+	cfg := config.Default()
+	cfg.ReconnectInitialInterval = config.Duration(time.Millisecond)
+	cfg.ReconnectMaxInterval = config.Duration(time.Millisecond)
+	cfg.ReadTimeout = config.Duration(10 * time.Millisecond)
+	m := NewMonitor("ws://test", cfg, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	m.dialer = &fakeDialer{readers: []notificationReader{r, r, r}}
+
+	// Without a read deadline this would block for the full second and record a
+	// single read; with one, the read gives up and Run reconnects repeatedly.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	_ = m.Run(ctx)
+
+	assert.Greater(t, r.reads, 1, "silent connection should time out and be retried, not block forever")
+}
+
+func TestMonitorReadTimeoutDefaultsWhenUnset(t *testing.T) {
+	// A Config literal built without ReadTimeout must not yield a 0 deadline,
+	// which would expire every read immediately.
+	m := NewMonitor("ws://test", config.Config{}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	assert.Equal(t, defaultReadTimeout, m.readTimeout)
+}

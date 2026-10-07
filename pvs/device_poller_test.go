@@ -678,3 +678,85 @@ func TestDevicePollerUnreachableTracking(t *testing.T) {
 		assert.Equal(t, 2, store.saveCount, "error transition and recovery; overnight zeros suppressed")
 	})
 }
+
+// TestDevicePollerReEnablesTelemetryEveryTick guards the 2026-09-22 regression:
+// a one-shot telemetry enable left the power stream dead for 58 hours after the
+// PVS6 came back with the setting cleared.
+func TestDevicePollerReEnablesTelemetryEveryTick(t *testing.T) {
+	var mu sync.Mutex
+	varsHits := 0
+	authHandler := func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "testsession"})
+		_, _ = fmt.Fprint(w, `{"session":"testsession"}`)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/vars", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		varsHits++
+		mu.Unlock()
+		_, _ = fmt.Fprint(w, `{"values":[{"name":"/sys/telemetryws/enable","value":"1"}],"count":1}`)
+	})
+	mux.HandleFunc("/cgi-bin/dl_cgi/devices/list", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(deviceListBody(nil))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	p := newTestPoller(t, srv, nil)
+	p.interval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	_ = p.Run(ctx)
+
+	mu.Lock()
+	hits := varsHits
+	mu.Unlock()
+	assert.Greater(t, hits, 1, "telemetry enable should be re-sent on every tick, not only at startup")
+}
+
+// TestDevicePollerTelemetryAuthFatalOnlyOnFirstCall: bad credentials should fail
+// loudly at startup, but a transient 401 on a later tick must not stop the daemon.
+func TestDevicePollerTelemetryAuthFatalOnlyOnFirstCall(t *testing.T) {
+	var mu sync.Mutex
+	authCalls := 0
+	authHandler := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		authCalls++
+		n := authCalls
+		mu.Unlock()
+		// Succeed for startup (enable + first poll), then reject everything.
+		if n > 2 {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: "session", Value: "testsession"})
+		_, _ = fmt.Fprint(w, `{"session":"testsession"}`)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth", authHandler)
+	mux.HandleFunc("/vars", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"values":[{"name":"/sys/telemetryws/enable","value":"1"}],"count":1}`)
+	})
+	mux.HandleFunc("/cgi-bin/dl_cgi/devices/list", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(deviceListBody(nil))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	p := newTestPoller(t, srv, nil)
+	p.interval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	err := p.Run(ctx)
+
+	// The poll's own authError is still fatal; what must not happen is the
+	// telemetry call killing the poller before the poll ever gets its turn.
+	mu.Lock()
+	calls := authCalls
+	mu.Unlock()
+	assert.Greater(t, calls, 2, "poller should have kept running past the first failing tick")
+	assert.Error(t, err)
+}
