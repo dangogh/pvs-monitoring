@@ -62,11 +62,19 @@ type DeviceListConfig struct {
 
 // Config holds all runtime configuration for pvs-monitor.
 type Config struct {
-	Addr                     string           `yaml:"addr"`
-	ReconnectInitialInterval Duration         `yaml:"reconnect_initial_interval"`
-	ReconnectMaxInterval     Duration         `yaml:"reconnect_max_interval"`
-	StaleThreshold           Duration         `yaml:"stale_threshold"`
-	DeviceList               DeviceListConfig `yaml:"device_list"`
+	Addr                     string   `yaml:"addr"`
+	ReconnectInitialInterval Duration `yaml:"reconnect_initial_interval"`
+	ReconnectMaxInterval     Duration `yaml:"reconnect_max_interval"`
+	StaleThreshold           Duration `yaml:"stale_threshold"`
+	// ReadTimeout bounds how long a single WebSocket read may block before the
+	// connection is treated as dead. The PVS6 sends power frames about once a
+	// second, so silence this long is a fault, not jitter. Without it the read
+	// blocks until TCP gives up, which took 58 hours on 2026-09-22. Kept
+	// separate from StaleThreshold, which happens to share the default but
+	// answers a different question (how old a reading may be before API
+	// callers should distrust it).
+	ReadTimeout Duration         `yaml:"read_timeout"`
+	DeviceList  DeviceListConfig `yaml:"device_list"`
 	// Timezone is the IANA zone name (e.g. "America/Los_Angeles") of the site
 	// where the PVS6 is installed. pvs-ui uses it to bucket and label charts
 	// by the site's calendar day regardless of the viewing browser's own
@@ -84,6 +92,7 @@ func Default() Config {
 		// Above ReconnectMaxInterval: a reconnect can take that long, and a
 		// shorter threshold reports stale data during normal recovery.
 		StaleThreshold: Duration(60 * time.Second),
+		ReadTimeout:    Duration(60 * time.Second),
 		DeviceList: DeviceListConfig{
 			URL:      deviceListURLFromAddr(defaultAddr),
 			Interval: Duration(60 * time.Second),

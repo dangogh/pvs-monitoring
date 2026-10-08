@@ -126,12 +126,16 @@ func (wsDialer) dial(ctx context.Context, addr string) (notificationReader, func
 	return &wsReader{conn: conn}, func() { _ = conn.CloseNow() }, nil
 }
 
+// defaultReadTimeout is the fallback when a Config carries no ReadTimeout.
+const defaultReadTimeout = 60 * time.Second
+
 // Monitor connects to a PVS6 WebSocket and keeps the latest Reading.
 type Monitor struct {
 	addr             string
 	reconnectInitial time.Duration
 	reconnectMax     time.Duration
 	staleThreshold   time.Duration
+	readTimeout      time.Duration
 	statsInterval    time.Duration
 	logger           *slog.Logger
 	store            Store
@@ -147,11 +151,19 @@ type Monitor struct {
 // NewMonitor creates a Monitor targeting the given WebSocket address.
 // store may be nil to disable persistence.
 func NewMonitor(addr string, cfg config.Config, store Store, logger *slog.Logger) *Monitor {
+	readTimeout := cfg.ReadTimeout.Duration()
+	if readTimeout <= 0 {
+		// A zero value would expire every read immediately, turning the
+		// reconnect loop into a spin. Callers that build a Config literal
+		// instead of starting from Default() get the default rather than that.
+		readTimeout = defaultReadTimeout
+	}
 	return &Monitor{
 		addr:             addr,
 		reconnectInitial: cfg.ReconnectInitialInterval.Duration(),
 		reconnectMax:     cfg.ReconnectMaxInterval.Duration(),
 		staleThreshold:   cfg.StaleThreshold.Duration(),
+		readTimeout:      readTimeout,
 		statsInterval:    5 * time.Minute,
 		logger:           logger,
 		store:            store,
@@ -208,7 +220,15 @@ func (m *Monitor) connect(ctx context.Context) error {
 func (m *Monitor) runLoop(ctx context.Context, r notificationReader) error {
 	for {
 		var n notification
-		if err := r.read(ctx, &n); err != nil {
+		// Bound each read. The PVS6 emits power frames roughly every second, so
+		// a read that blocks this long means the stream is dead even though the
+		// socket is still open — the exact failure of 2026-09-22, where the
+		// WebSocket stayed connected but silent and only TCP eventually noticed,
+		// 58 hours later. Returning here hands control to Run's reconnect loop.
+		readCtx, cancel := context.WithTimeout(ctx, m.readTimeout)
+		err := r.read(readCtx, &n)
+		cancel()
+		if err != nil {
 			return fmt.Errorf("read: %w", err)
 		}
 		if n.Notification != "power" {

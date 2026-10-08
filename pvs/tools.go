@@ -176,6 +176,18 @@ func getHistory(ctx context.Context, api API, args historyArgs) (*mcp.CallToolRe
 		out.Warnings = append(out.Warnings,
 			"negative energy total: the cumulative counters ran backwards over this range, so these figures are not trustworthy")
 	}
+	// Rows reconstructed by cmd/pvs-backfill stand in for 1 Hz samples at 1/min
+	// resolution. Energy comes from cumulative counters and is sound, but the
+	// averages and any series detail are coarse over that span — a caveat, not
+	// an error, so it belongs here rather than in a failure.
+	if data.Summary.BackfilledSeconds > 0 {
+		span := until.Sub(since).Seconds()
+		pct := 100 * float64(data.Summary.BackfilledSeconds) / span
+		out.Warnings = append(out.Warnings, fmt.Sprintf(
+			"%.0f%% of this range (%s) was reconstructed from 1/min meter data after a telemetry gap; "+
+				"energy totals are reliable but average and instantaneous power are approximate",
+			pct, (time.Duration(data.Summary.BackfilledSeconds)*time.Second).String()))
+	}
 	if args.Series {
 		out.Series = data.Series
 	}

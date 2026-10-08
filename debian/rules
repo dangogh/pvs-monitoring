@@ -21,17 +21,22 @@ override_dh_auto_build:
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-monitor ./cmd/pvs-monitor
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-api ./cmd/pvs-api
 	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-ui ./cmd/pvs-ui
+	GOOS=linux GOARCH=$(DEB_HOST_ARCH) CGO_ENABLED=0 go build -buildvcs=false -ldflags="$(GO_LDFLAGS)" -o bin/pvs-backfill ./cmd/pvs-backfill
 
 override_dh_auto_install:
 	# Install binaries
 	install -D -m 755 bin/pvs-monitor $(DESTDIR)/usr/bin/pvs-monitor
 	install -D -m 755 bin/pvs-api $(DESTDIR)/usr/bin/pvs-api
 	install -D -m 755 bin/pvs-ui $(DESTDIR)/usr/bin/pvs-ui
+	# One-shot repair tool, run by hand; no service unit.
+	install -D -m 755 bin/pvs-backfill $(DESTDIR)/usr/bin/pvs-backfill
 	
 	# Install systemd services
 	install -D -m 644 debian/pvs-monitor.service $(DESTDIR)/etc/systemd/system/pvs-monitor.service
 	install -D -m 644 debian/pvs-api.service $(DESTDIR)/etc/systemd/system/pvs-api.service
 	install -D -m 644 debian/pvs-ui.service $(DESTDIR)/etc/systemd/system/pvs-ui.service
+	install -D -m 644 debian/pvs-heartbeat.service $(DESTDIR)/etc/systemd/system/pvs-heartbeat.service
+	install -D -m 644 debian/pvs-heartbeat.timer $(DESTDIR)/etc/systemd/system/pvs-heartbeat.timer
 
 	# Install the example config. The seed copy that postinst turns into the
 	# live config.yaml on a fresh install goes under /usr/share, NOT /etc:
@@ -45,6 +50,13 @@ override_dh_auto_install:
 
 	# Install update script
 	install -D -m 755 pvs-update.sh $(DESTDIR)/usr/bin/pvs-update
+
+	# Dead-man switch. The seed for its per-host config goes under /usr/share for
+	# the same reason config.yaml's does: anything under /etc becomes a conffile,
+	# and postinst rewriting or removing one makes dpkg prompt on the next
+	# upgrade, which wedges the unattended cron updater.
+	install -D -m 755 pvs-heartbeat.sh $(DESTDIR)/usr/bin/pvs-heartbeat
+	install -D -m 644 heartbeat.conf.example $(DESTDIR)/usr/share/pvs-monitoring/heartbeat.conf.default
 
 	# Install sudoers drop-in for passwordless deployment
 	install -D -m 440 debian/pvs-monitor.sudoers $(DESTDIR)/etc/sudoers.d/pvs-monitor

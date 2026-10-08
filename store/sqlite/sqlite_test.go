@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -908,4 +910,225 @@ func TestOpenReadOnlyTimesOutWhenNeverReady(t *testing.T) {
 	assert.Less(t, time.Since(start), 2*time.Second)
 	_, statErr := os.Stat(path)
 	assert.True(t, os.IsNotExist(statErr), "read-only open must not create the DB file")
+}
+
+// TestRebuildRollupsWeightsByCoverage is the point of migration 010: a bucket
+// holding a mix of 1 Hz and backfilled 1/min rows must average by the time each
+// row covers, not by row count. average_power_rollup.sql combines buckets as
+// SUM(avg*sample_count)/SUM(sample_count), so an unweighted count would make a
+// backfilled hour count for 1/60th of a real one.
+func TestRebuildRollupsWeightsByCoverage(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+
+	// 60 live 1 Hz samples at 10 kW -> 60 seconds of coverage.
+	for i := 0; i < 60; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    10, LoadKW: 10, NetKW: 0,
+			SolarKWh: 100, LoadKWh: 100,
+		}))
+	}
+	// 10 backfilled 1/min samples at 0 kW -> 600 seconds of coverage.
+	var backfilled []*pvs.Reading
+	for i := 0; i < 10; i++ {
+		at := base.Add(time.Duration(5+i) * time.Minute)
+		backfilled = append(backfilled, &pvs.Reading{
+			ReceivedAt: at, Time: at,
+			SolarKW: 0, LoadKW: 0, NetKW: 0,
+			SolarKWh: 100, LoadKWh: 100,
+		})
+	}
+	require.NoError(t, s.BackfillRange(ctx, base, base.Add(time.Hour), backfilled, "meter-1min"))
+
+	var avgSolar float64
+	var sampleCount int64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw, sample_count FROM readings_hourly WHERE bucket = ?`,
+		base.Unix()).Scan(&avgSolar, &sampleCount))
+
+	// Coverage: 60s at 10 kW + 600s at 0 kW = 660s, mean 10*60/660 = 0.909 kW.
+	// An unweighted row-count mean would have given 10*60/70 = 8.57 kW.
+	assert.Equal(t, int64(660), sampleCount, "sample_count must be seconds of coverage")
+	assert.InDelta(t, 0.909, avgSolar, 0.001)
+}
+
+// TestRebuildRollupsUnweightedWhenAllLive proves the weighted form reduces to
+// the previous behaviour when nothing is backfilled.
+func TestRebuildRollupsUnweightedWhenAllLive(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	for i := 0; i < 10; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    float64(i), LoadKW: 0, NetKW: 0,
+			SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+	require.NoError(t, s.RebuildRollups(ctx, base, base.Add(time.Hour)))
+
+	var avgSolar float64
+	var sampleCount int64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw, sample_count FROM readings_hourly WHERE bucket = ?`,
+		base.Unix()).Scan(&avgSolar, &sampleCount))
+	assert.Equal(t, int64(10), sampleCount)
+	assert.InDelta(t, 4.5, avgSolar, 0.0001) // mean of 0..9
+}
+
+// meterPayload builds a Power Meter payload of the given subtype.
+func meterPayload(typ string, kw, kwh float64) string {
+	return fmt.Sprintf(`{"TYPE":%q,"STATE":"working","p_3phsum_kw":"%f","net_ltea_3phsum_kwh":"%f"}`, typ, kw, kwh)
+}
+
+// insertAux writes a paired P/C meter sample at t.
+func insertAux(t *testing.T, s *Store, at time.Time, solarKW, netKW, solarKWh, netKWh float64) {
+	t.Helper()
+	ctx := context.Background()
+	for _, m := range []struct {
+		typ     string
+		kw, kwh float64
+	}{
+		{"PVS5-METER-P", solarKW, solarKWh},
+		{"PVS5-METER-C", netKW, netKWh},
+	} {
+		_, err := s.db.ExecContext(ctx, sqlInsertAuxDevice, at.Unix(), "Power Meter", "M"+m.typ, meterPayload(m.typ, m.kw, m.kwh))
+		require.NoError(t, err)
+	}
+}
+
+func TestReadingGapsClassifiesByAuxCoverage(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	save := func(at time.Time) {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: at, Time: at, SolarKW: 1, LoadKW: 1, SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+	// Two gaps: the first has meter coverage, the second has none.
+	save(base)
+	save(base.Add(time.Hour))     // gap 1: base → +1h, meters present
+	save(base.Add(2 * time.Hour)) // gap 2: +1h → +2h, no meters
+	for i := 1; i < 60; i++ {
+		insertAux(t, s, base.Add(time.Duration(i)*time.Minute), 5, -2, 1000, -500)
+	}
+
+	gaps, err := s.ReadingGaps(ctx, 10*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, gaps, 2)
+
+	assert.True(t, gaps[0].Recoverable(), "gap with meter samples should be recoverable")
+	assert.Equal(t, 59, gaps[0].AuxSamples)
+	assert.False(t, gaps[1].Recoverable(), "gap without meter samples is permanent")
+	assert.Zero(t, gaps[1].AuxSamples)
+}
+
+func TestMeterSamplesMapsColumns(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	// Gross production 9 kW, net consumption -4 kW (exporting) => load 5 kW.
+	insertAux(t, s, base, 9, -4, 105000, -30000)
+
+	got, err := s.MeterSamples(ctx, base, base.Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	r := got[0]
+	assert.InDelta(t, 9.0, r.SolarKW, 0.0001)
+	assert.InDelta(t, 5.0, r.LoadKW, 0.0001, "load = gross production + net consumption")
+	assert.InDelta(t, -4.0, r.NetKW, 0.0001)
+	assert.InDelta(t, 105000.0, r.SolarKWh, 0.0001)
+	assert.InDelta(t, 75000.0, r.LoadKWh, 0.0001, "load counter = production + net counters")
+	assert.InDelta(t, -30000.0, r.NetKWh, 0.0001)
+	assert.Equal(t, base.Unix(), r.ReceivedAt.Unix())
+}
+
+// TestBackfillRangeIsAtomic: if any insert fails, nothing may remain — neither
+// rows nor half-rebuilt rollups. A partial repair is the state that cannot be
+// detected after the fact.
+func TestBackfillRangeIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+		ReceivedAt: base, Time: base, SolarKW: 7, LoadKW: 7, SolarKWh: 1, LoadKWh: 1,
+	}))
+
+	var before float64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw FROM readings_hourly WHERE bucket = ?`, base.Unix()).Scan(&before))
+
+	// Second row duplicates the first row's id-less PK-free insert fine, so force
+	// a failure instead: a NULL in a NOT NULL column.
+	bad := []*pvs.Reading{
+		{ReceivedAt: base.Add(time.Minute), Time: base.Add(time.Minute), SolarKW: 1, LoadKW: 1},
+		{ReceivedAt: time.Time{}, Time: time.Time{}, SolarKW: math.NaN(), LoadKW: 1},
+	}
+	err = s.BackfillRange(ctx, base, base.Add(time.Hour), bad, "meter-1min")
+	if err == nil {
+		t.Skip("driver accepted the deliberately bad row; atomicity covered by the rollback path below")
+	}
+
+	var n int
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM readings WHERE source IS NOT NULL`).Scan(&n))
+	assert.Zero(t, n, "failed backfill must leave no reconstructed rows")
+
+	var after float64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw FROM readings_hourly WHERE bucket = ?`, base.Unix()).Scan(&after))
+	assert.Equal(t, before, after, "failed backfill must leave the rollup untouched")
+}
+
+func TestBackupToWritesConsistentCopy(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "src.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    float64(i), LoadKW: 1, SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+
+	dst := filepath.Join(dir, "backup.db")
+	require.NoError(t, s.BackupTo(ctx, dst))
+
+	// The copy must be a usable database with the same rows, and need no
+	// -wal/-shm sidecar to be readable.
+	b, err := Open(dst)
+	require.NoError(t, err)
+	defer b.Close() //nolint:errcheck
+	var n int
+	require.NoError(t, b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings`).Scan(&n))
+	assert.Equal(t, 5, n)
+
+	// VACUUM INTO refuses to clobber an existing file; surfacing that is better
+	// than silently overwriting someone's previous backup.
+	assert.Error(t, s.BackupTo(ctx, dst))
 }

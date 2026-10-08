@@ -1,0 +1,19 @@
+# pvs-heartbeat configuration. Sourced as shell, so use KEY=value with no spaces.
+#
+# This file is per-host and is NOT shipped with content: healthchecks.io checks
+# are site-specific, and each host needs its own UUID. Without HEARTBEAT_UUID the
+# heartbeat exits quietly and no monitoring happens.
+
+# The healthchecks.io check UUID for THIS host. Each host must have its own —
+# sharing one makes two machines indistinguishable and lets a live host mask a
+# dead one.
+HEARTBEAT_UUID=
+
+# Override only if you self-host or proxy the ping endpoint.
+#HEARTBEAT_PING_BASE=https://hc-ping.com
+
+# Staleness bounds in seconds. readings is the 1 Hz WebSocket stream;
+# aux_device_readings is the once-a-minute device poll. They are separate because
+# they fail independently.
+#READINGS_MAX_AGE=900
+#AUX_MAX_AGE=1800

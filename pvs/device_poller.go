@@ -143,7 +143,18 @@ func (p *DevicePoller) Run(ctx context.Context) error {
 	if p.store != nil {
 		p.seedFromStore(ctx)
 	}
-	// Firmware 2025.10+ disables WebSocket telemetry by default; re-enable it on startup.
+	// Firmware 2025.10+ disables WebSocket telemetry by default and resets the
+	// setting on reboot, so this is re-sent on every tick rather than once at
+	// startup. A one-shot enable left the telemetry stream dead for 58 hours on
+	// 2026-09-22: the PVS6 briefly left the network, came back with telemetry
+	// off, and nothing ever turned it back on. The call is an idempotent GET, so
+	// repeating it costs one request per interval and cannot miss the event the
+	// way a reconnect-triggered enable would (the PVS6 can drop the stream
+	// without our WebSocket noticing).
+	//
+	// Credentials are only fatal on the first attempt: bad config should fail
+	// loudly at startup, but a transient 401 hours later must not take the
+	// daemon down.
 	if err := p.enableTelemetryWS(ctx); err != nil {
 		if _, ok := err.(authError); ok {
 			return err
@@ -163,6 +174,9 @@ func (p *DevicePoller) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if err := p.enableTelemetryWS(ctx); err != nil {
+				p.logger.Warn("could not enable WebSocket telemetry", "err", err)
+			}
 			if err := p.poll(ctx); err != nil {
 				if _, ok := err.(authError); ok {
 					return err

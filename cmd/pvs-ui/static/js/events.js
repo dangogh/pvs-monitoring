@@ -9,6 +9,8 @@ const EVENT_TYPES = [
   { value: 'hvac_outage',    label: 'HVAC Outage'    },
   { value: 'inverter_outage', label: 'Inverter Outage' },
   { value: 'grid_outage',    label: 'Grid Outage'    },
+  // Monitoring stopped recording while the array kept running — not an outage.
+  { value: 'telemetry_outage', label: 'Telemetry Outage' },
   { value: 'maintenance',    label: 'Maintenance'    },
   // Load-side: an expected rise in consumption, not an array fault.
   { value: 'ev_charging',    label: 'EV Charging'    },

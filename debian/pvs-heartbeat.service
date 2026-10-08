@@ -1,0 +1,16 @@
+[Unit]
+Description=PVS6 monitor dead-man switch
+Documentation=https://github.com/dangogh/pvs-monitoring
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=pvs-monitoring
+ExecStart=/usr/bin/pvs-heartbeat
+# Output goes to the journal on purpose. The 2026-09-22 outage was detected
+# correctly on the first check and still went unnoticed for 58 hours, because
+# the cron entry discarded both stdout and stderr and the script swallowed
+# curl's exit status. journalctl -u pvs-heartbeat is that missing record.
+StandardOutput=journal
+StandardError=journal

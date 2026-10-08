@@ -17,6 +17,8 @@ import (
 
 // fakeStore is a configurable pvs.Store for handler tests.
 type fakeStore struct {
+	backfilledSeconds int64
+	backfilledErr     error
 	reading           *pvs.Reading
 	readingErr        error
 	energy            pvs.EnergyDelta
@@ -55,8 +57,11 @@ func (f *fakeStore) EnergyDelta(_ context.Context, _, _ time.Time) (pvs.EnergyDe
 func (f *fakeStore) ReadingsSeries(_ context.Context, _, _ time.Time, _ int64) ([]pvs.SeriesPoint, error) {
 	return f.series, f.seriesErr
 }
-func (f *fakeStore) CountReadings(_ context.Context) (int64, error)                   { return 0, nil }
-func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error)           { return time.Time{}, nil }
+func (f *fakeStore) CountReadings(_ context.Context) (int64, error)         { return 0, nil }
+func (f *fakeStore) EarliestReadingAt(_ context.Context) (time.Time, error) { return time.Time{}, nil }
+func (f *fakeStore) BackfilledSeconds(_ context.Context, _, _ time.Time) (int64, error) {
+	return f.backfilledSeconds, f.backfilledErr
+}
 func (f *fakeStore) SaveDevices(_ context.Context, _ []pvs.Device, _ time.Time) error { return nil }
 func (f *fakeStore) LatestInverters(_ context.Context) ([]pvs.InverterDevice, error) {
 	return f.inverters, f.invertersErr
@@ -768,5 +773,44 @@ func TestHandleUpdateConfig_MaskedPasswordNotClobbered(t *testing.T) {
 	// The masked sentinel means "unchanged" — SetSetting must not be called for it.
 	if _, ok := store.setSettings["device_list.password"]; ok {
 		t.Errorf("masked password should not have been written")
+	}
+}
+
+// --- backfilled coverage reporting ---
+
+func TestHandleData_ReportsBackfilledSeconds(t *testing.T) {
+	store := &fakeStore{backfilledSeconds: 3600}
+	w := httptest.NewRecorder()
+	newServer(store).handleData(w, httptest.NewRequest(http.MethodGet, "/api/data?since=1790000000&until=1790086400", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got pvs.DataResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Summary.BackfilledSeconds != 3600 {
+		t.Errorf("want 3600 backfilled seconds, got %d", got.Summary.BackfilledSeconds)
+	}
+}
+
+func TestHandleData_OmitsBackfilledSecondsWhenAllLive(t *testing.T) {
+	w := httptest.NewRecorder()
+	newServer(&fakeStore{}).handleData(w, httptest.NewRequest(http.MethodGet, "/api/data?since=1790000000&until=1790086400", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "backfilled_seconds") {
+		t.Error("omitempty should keep the field out of an all-live response")
+	}
+}
+
+func TestHandleData_BackfilledQueryError(t *testing.T) {
+	store := &fakeStore{backfilledErr: errors.New("boom")}
+	w := httptest.NewRecorder()
+	newServer(store).handleData(w, httptest.NewRequest(http.MethodGet, "/api/data?since=1790000000&until=1790086400", nil))
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("want 500, got %d", w.Code)
 	}
 }
