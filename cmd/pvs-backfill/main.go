@@ -13,6 +13,11 @@
 // the power stream did and household load moves fast.
 //
 // Nothing is written without -apply. The default run reports what it would do.
+//
+// With -apply, each gap is filled in a single transaction — rows and rollup
+// rebuild together — so a failure leaves the database exactly as it was. A
+// consistent VACUUM INTO backup is taken first unless -no-backup is given, and
+// only when there is actually something to write.
 package main
 
 import (
@@ -20,6 +25,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dangogh/pvs-monitoring/internal/version"
@@ -35,6 +43,8 @@ func main() {
 	from := flag.String("from", "", "only consider gaps starting at or after this time (RFC3339)")
 	to := flag.String("to", "", "only consider gaps ending at or before this time (RFC3339)")
 	apply := flag.Bool("apply", false, "actually write; without this the run only reports")
+	backup := flag.String("backup", "", "write a consistent copy here before touching the database (default: /var/tmp/<db>-backup-<timestamp>.db)")
+	noBackup := flag.Bool("no-backup", false, "skip the pre-write backup")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -43,12 +53,12 @@ func main() {
 		return
 	}
 
-	if err := run(*dbPath, *minGap, *from, *to, *apply); err != nil {
+	if err := run(*dbPath, *minGap, *from, *to, *apply, *backup, *noBackup); err != nil {
 		log.Fatalf("pvs-backfill: %v", err)
 	}
 }
 
-func run(dbPath string, minGap time.Duration, from, to string, apply bool) error {
+func run(dbPath string, minGap time.Duration, from, to string, apply bool, backupPath string, noBackup bool) error {
 	lo, err := parseBound(from)
 	if err != nil {
 		return fmt.Errorf("-from: %w", err)
@@ -92,6 +102,30 @@ func run(dbPath string, minGap time.Duration, from, to string, apply bool) error
 	if !apply {
 		fmt.Println("DRY RUN — nothing will be written. Re-run with -apply to commit.")
 	}
+
+	// Back up before the first write, not at startup: a dry run and a run that
+	// finds only unrecoverable gaps should not leave a 2 GB file behind.
+	fillable := 0
+	for _, g := range selected {
+		if g.Recoverable() {
+			fillable++
+		}
+	}
+	if apply && fillable > 0 && !noBackup {
+		if backupPath == "" {
+			backupPath = defaultBackupPath(dbPath)
+		}
+		fmt.Printf("backing up to %s …\n", backupPath)
+		if err := store.BackupTo(ctx, backupPath); err != nil {
+			return fmt.Errorf("%w (use -no-backup to proceed without one)", err)
+		}
+		fi, err := os.Stat(backupPath)
+		if err != nil {
+			return fmt.Errorf("backup reported success but %s is missing: %w", backupPath, err)
+		}
+		fmt.Printf("      backup written, %.1f GB\n", float64(fi.Size())/(1<<30))
+	}
+
 	var totalWritten int
 	for _, g := range selected {
 		dur := g.End.Sub(g.Start)
@@ -124,20 +158,22 @@ func run(dbPath string, minGap time.Duration, from, to string, apply bool) error
 	return nil
 }
 
-// fill inserts the reconstructed rows then rebuilds the rollup buckets the gap
-// touches. The rows go in first and the rollups are recomputed from scratch
-// afterwards, because a bucket mixing 1 Hz and 1/min rows cannot be corrected
-// by the incremental upserts SaveReading uses.
+// fill writes one gap atomically: the reconstructed rows and the rollup rebuild
+// land in a single transaction, so a failure anywhere leaves the database
+// exactly as it was rather than holding rows whose rollups were never redone.
 func fill(ctx context.Context, store *sqlite.Store, g sqlite.ReadingGap, samples []*pvs.Reading) (int, error) {
-	for _, r := range samples {
-		if err := store.SaveBackfilledReading(ctx, r, backfillSource); err != nil {
-			return 0, err
-		}
-	}
-	if err := store.RebuildRollups(ctx, g.Start, g.End); err != nil {
-		return len(samples), fmt.Errorf("rebuild rollups: %w", err)
+	if err := store.BackfillRange(ctx, g.Start, g.End, samples, backfillSource); err != nil {
+		return 0, err
 	}
 	return len(samples), nil
+}
+
+// defaultBackupPath puts the copy on real disk rather than beside the database.
+// /var/tmp is deliberate: /tmp on the monitoring host is a tmpfs, so a 2 GB
+// snapshot there is 2 GB of RAM.
+func defaultBackupPath(dbPath string) string {
+	base := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	return filepath.Join("/var/tmp", fmt.Sprintf("%s-backup-%s.db", base, time.Now().Format("20060102-150405")))
 }
 
 func parseBound(s string) (time.Time, error) {

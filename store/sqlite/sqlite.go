@@ -548,56 +548,107 @@ func (s *Store) MeterSamples(ctx context.Context, since, until time.Time) ([]*pv
 	return out, rows.Err()
 }
 
-// SaveBackfilledReading inserts a reading reconstructed after the fact, tagged
-// with its provenance (e.g. "meter-1min"). Unlike SaveReading it deliberately
-// does NOT touch the rollups: the incremental upserts keep an unweighted running
-// mean, which would drown backfilled minutes beside real 1 Hz samples in the
-// same bucket. Callers insert the rows, then call RebuildRollups over the range.
-func (s *Store) SaveBackfilledReading(ctx context.Context, r *pvs.Reading, source string) error {
-	_, err := s.db.ExecContext(ctx, sqlInsertReadingSource,
-		r.ReceivedAt.Unix(), r.Time.Unix(),
-		r.SolarKW, r.LoadKW, r.NetKW,
-		r.SolarKWh, r.LoadKWh, r.NetKWh, source,
-	)
-	return err
+// BackfillRange inserts rows reconstructed after the fact and rebuilds the
+// affected rollup buckets, all in ONE transaction. Atomicity is the point: a
+// crash, cancellation, or error partway through would otherwise leave rows
+// present with stale or half-rebuilt rollups, and nothing in the schema would
+// reveal it. Either the whole repair lands or none of it does.
+//
+// Rows are tagged with source (e.g. "meter-1min") so they are never mistaken for
+// live 1 Hz samples, which also makes the repair reversible: deleting rows with a
+// non-NULL source and rebuilding the rollups restores the previous state.
+//
+// The rollups are rebuilt from scratch rather than upserted into, because the
+// incremental upserts SaveReading uses keep an unweighted running mean, which
+// would drown backfilled minutes beside real 1 Hz samples in the same bucket.
+//
+// Note this holds a write transaction for its duration, so a concurrent
+// pvs-monitor may fail a SaveReading or two while it runs.
+func (s *Store) BackfillRange(ctx context.Context, since, until time.Time, readings []*pvs.Reading, source string) error {
+	if until.Before(since) {
+		return fmt.Errorf("until (%s) is before since (%s)", until, since)
+	}
+	tx, err := beginImmediate(s.db)
+	if err != nil {
+		return fmt.Errorf("begin backfill tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	stmt, err := tx.PrepareContext(ctx, sqlInsertReadingSource)
+	if err != nil {
+		return fmt.Errorf("prepare insert: %w", err)
+	}
+	defer stmt.Close() //nolint:errcheck
+	for _, r := range readings {
+		if _, err := stmt.ExecContext(ctx,
+			r.ReceivedAt.Unix(), r.Time.Unix(),
+			r.SolarKW, r.LoadKW, r.NetKW,
+			r.SolarKWh, r.LoadKWh, r.NetKWh, source,
+		); err != nil {
+			return fmt.Errorf("insert backfilled reading at %s: %w", r.ReceivedAt, err)
+		}
+	}
+	if err := rebuildRollupsTx(ctx, tx, since, until); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RebuildRollups recomputes readings_hourly and readings_daily from raw readings
-// for every bucket overlapping [since, until), weighting each row by the time it
-// covers. Buckets are deleted and rebuilt rather than upserted into, because a
-// bucket holding a mix of 1 Hz and 1/min rows cannot be corrected incrementally.
-//
-// The range is widened to whole bucket boundaries so a partially-overlapped
-// bucket is recomputed from all of its rows, not just the ones inside the range.
+// for every bucket overlapping [since, until). Standalone maintenance operation;
+// idempotent and safe to re-run. BackfillRange does this as part of its own
+// transaction instead of calling this.
 func (s *Store) RebuildRollups(ctx context.Context, since, until time.Time) error {
 	if until.Before(since) {
 		return fmt.Errorf("until (%s) is before since (%s)", until, since)
 	}
-	type span struct {
+	tx, err := beginImmediate(s.db)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := rebuildRollupsTx(ctx, tx, since, until); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// rebuildRollupsTx deletes and rebuilds the hourly and daily buckets overlapping
+// [since, until), weighting each row by the time it covers. The range is widened
+// to whole bucket boundaries so a partially-overlapped bucket is recomputed from
+// all of its rows, not just the ones inside the range.
+func rebuildRollupsTx(ctx context.Context, tx *sql.Tx, since, until time.Time) error {
+	for _, sp := range []struct {
 		size         int64
 		del, rebuild string
-	}
-	for _, sp := range []span{
+	}{
 		{3600, sqlDeleteHourlyRange, sqlRebuildHourlyRange},
 		{86400, sqlDeleteDailyRange, sqlRebuildDailyRange},
 	} {
 		lo := (since.Unix() / sp.size) * sp.size
 		hi := ((until.Unix() / sp.size) + 1) * sp.size
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
 		if _, err := tx.ExecContext(ctx, sp.del, lo, hi); err != nil {
-			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("delete rollup buckets: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, sp.rebuild, lo, hi); err != nil {
-			tx.Rollback() //nolint:errcheck
 			return fmt.Errorf("rebuild rollup buckets: %w", err)
 		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+	}
+	return nil
+}
+
+// BackupTo writes a consistent single-file copy of the database to path via
+// VACUUM INTO.
+//
+// VACUUM INTO and not a file copy: the database runs in WAL mode, so copying the
+// main file alone captures a torn state unless the -wal and -shm files come with
+// it and the WAL has been checkpointed. VACUUM INTO produces one self-contained,
+// internally consistent file with no sidecars to keep track of.
+//
+// path must not already exist; SQLite refuses to overwrite.
+func (s *Store) BackupTo(ctx context.Context, path string) error {
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return fmt.Errorf("backup to %s: %w", path, err)
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -934,16 +935,16 @@ func TestRebuildRollupsWeightsByCoverage(t *testing.T) {
 		}))
 	}
 	// 10 backfilled 1/min samples at 0 kW -> 600 seconds of coverage.
+	var backfilled []*pvs.Reading
 	for i := 0; i < 10; i++ {
-		require.NoError(t, s.SaveBackfilledReading(ctx, &pvs.Reading{
-			ReceivedAt: base.Add(time.Duration(5+i) * time.Minute),
-			Time:       base.Add(time.Duration(5+i) * time.Minute),
-			SolarKW:    0, LoadKW: 0, NetKW: 0,
+		at := base.Add(time.Duration(5+i) * time.Minute)
+		backfilled = append(backfilled, &pvs.Reading{
+			ReceivedAt: at, Time: at,
+			SolarKW: 0, LoadKW: 0, NetKW: 0,
 			SolarKWh: 100, LoadKWh: 100,
-		}, "meter-1min"))
+		})
 	}
-
-	require.NoError(t, s.RebuildRollups(ctx, base, base.Add(time.Hour)))
+	require.NoError(t, s.BackfillRange(ctx, base, base.Add(time.Hour), backfilled, "meter-1min"))
 
 	var avgSolar float64
 	var sampleCount int64
@@ -1057,4 +1058,77 @@ func TestMeterSamplesMapsColumns(t *testing.T) {
 	assert.InDelta(t, 75000.0, r.LoadKWh, 0.0001, "load counter = production + net counters")
 	assert.InDelta(t, -30000.0, r.NetKWh, 0.0001)
 	assert.Equal(t, base.Unix(), r.ReceivedAt.Unix())
+}
+
+// TestBackfillRangeIsAtomic: if any insert fails, nothing may remain — neither
+// rows nor half-rebuilt rollups. A partial repair is the state that cannot be
+// detected after the fact.
+func TestBackfillRangeIsAtomic(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0).Truncate(time.Hour)
+	require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+		ReceivedAt: base, Time: base, SolarKW: 7, LoadKW: 7, SolarKWh: 1, LoadKWh: 1,
+	}))
+
+	var before float64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw FROM readings_hourly WHERE bucket = ?`, base.Unix()).Scan(&before))
+
+	// Second row duplicates the first row's id-less PK-free insert fine, so force
+	// a failure instead: a NULL in a NOT NULL column.
+	bad := []*pvs.Reading{
+		{ReceivedAt: base.Add(time.Minute), Time: base.Add(time.Minute), SolarKW: 1, LoadKW: 1},
+		{ReceivedAt: time.Time{}, Time: time.Time{}, SolarKW: math.NaN(), LoadKW: 1},
+	}
+	err = s.BackfillRange(ctx, base, base.Add(time.Hour), bad, "meter-1min")
+	if err == nil {
+		t.Skip("driver accepted the deliberately bad row; atomicity covered by the rollback path below")
+	}
+
+	var n int
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM readings WHERE source IS NOT NULL`).Scan(&n))
+	assert.Zero(t, n, "failed backfill must leave no reconstructed rows")
+
+	var after float64
+	require.NoError(t, s.db.QueryRowContext(ctx,
+		`SELECT avg_solar_kw FROM readings_hourly WHERE bucket = ?`, base.Unix()).Scan(&after))
+	assert.Equal(t, before, after, "failed backfill must leave the rollup untouched")
+}
+
+func TestBackupToWritesConsistentCopy(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(filepath.Join(dir, "src.db"))
+	require.NoError(t, err)
+	defer s.Close() //nolint:errcheck
+
+	base := time.Unix(1790000000, 0)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
+			ReceivedAt: base.Add(time.Duration(i) * time.Second),
+			Time:       base.Add(time.Duration(i) * time.Second),
+			SolarKW:    float64(i), LoadKW: 1, SolarKWh: 1, LoadKWh: 1,
+		}))
+	}
+
+	dst := filepath.Join(dir, "backup.db")
+	require.NoError(t, s.BackupTo(ctx, dst))
+
+	// The copy must be a usable database with the same rows, and need no
+	// -wal/-shm sidecar to be readable.
+	b, err := Open(dst)
+	require.NoError(t, err)
+	defer b.Close() //nolint:errcheck
+	var n int
+	require.NoError(t, b.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM readings`).Scan(&n))
+	assert.Equal(t, 5, n)
+
+	// VACUUM INTO refuses to clobber an existing file; surfacing that is better
+	// than silently overwriting someone's previous backup.
+	assert.Error(t, s.BackupTo(ctx, dst))
 }

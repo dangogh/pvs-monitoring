@@ -52,6 +52,8 @@ SQLite reads only              embeds static/index.html
 
 - **`cmd/pvs-mcp`** — MCP server entrypoint. Builds a `pvs.Client` for `--api` (default `http://solar.local`), registers tools, runs stdio transport. The `StdioTransport` owns the process lifetime. The API is not probed at startup, so a client launching while the monitoring host is down still comes up.
 
+- **`cmd/pvs-backfill`** — one-shot repair tool. Rebuilds gaps in the 1 Hz `readings` stream from the 1/min Power Meter payloads in `aux_device_readings`, for the case where the PVS6 stayed reachable while the WebSocket power stream was dead (see the 2026-09-22 stall). Auto-detects which gaps are recoverable: meter samples inside the gap mean a telemetry stall and a rebuild is possible, none means the PVS6 was off and the data is gone. Dry run by default; `-apply` writes. Reconstructed rows are tagged `source='meter-1min'`, which both keeps them distinguishable from measured samples and makes the repair reversible. Each gap is filled in one transaction, after a `VACUUM INTO` backup (`-no-backup` to skip).
+
 - **`cmd/pvs-api`** — HTTP REST server. Reads from SQLite and exposes `/api/current`, `/api/data`, `/api/devices`, and `/api/panel-health` with CORS headers.
 
 - **`cmd/pvs-ui`** — Serves an embedded `static/index.html` and reverse-proxies `/api/` to `pvs-api`.
