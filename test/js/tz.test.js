@@ -9,10 +9,14 @@ describe('zonedParts', () => {
   });
 
   it('falls back to the runner\'s own timezone when undefined', () => {
-    // The test runner is pinned to UTC (see package.json / CI), so this
-    // should read the same as the UTC instant itself.
-    const p = zonedParts(new Date('2024-07-10T15:00:00Z'), undefined);
-    expect(p).toMatchObject({ y: 2024, m: 6, d: 10, h: 15, min: 0, s: 0 });
+    // Expected values come from the host's local clock, so this holds in
+    // any runner timezone, not just UTC.
+    const d = new Date('2024-07-10T15:00:00Z');
+    const p = zonedParts(d, undefined);
+    expect(p).toMatchObject({
+      y: d.getFullYear(), m: d.getMonth(), d: d.getDate(),
+      h: d.getHours(), min: d.getMinutes(), s: d.getSeconds(),
+    });
   });
 
   it('handles a date that rolls to the next/previous day across the offset', () => {
