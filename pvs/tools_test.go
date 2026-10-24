@@ -19,6 +19,8 @@ type fakeAPI struct {
 	dataErr    error
 	health     PanelHealth
 	healthErr  error
+	cost       CostResponse
+	costErr    error
 
 	gotSince, gotUntil time.Time
 }
@@ -34,6 +36,11 @@ func (f *fakeAPI) Data(_ context.Context, since, until time.Time) (DataResponse,
 
 func (f *fakeAPI) PanelHealth(context.Context) (PanelHealth, error) {
 	return f.health, f.healthErr
+}
+
+func (f *fakeAPI) Cost(_ context.Context, since, until time.Time) (CostResponse, error) {
+	f.gotSince, f.gotUntil = since, until
+	return f.cost, f.costErr
 }
 
 // decode unmarshals a tool result's text content into v.
@@ -331,4 +338,9 @@ func TestGetHistoryBackfillWarningCoexistsWithNegativeEnergy(t *testing.T) {
 	var out historyResult
 	decode(t, res, &out)
 	assert.Len(t, out.Warnings, 2)
+}
+
+func TestGetCostSurfacesUnreachable(t *testing.T) {
+	_, _, err := (&fakeAPI{costErr: ErrUnreachable}).Cost(context.Background(), time.Now(), time.Now())
+	assert.ErrorIs(t, err, ErrUnreachable)
 }

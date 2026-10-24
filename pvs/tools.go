@@ -58,6 +58,26 @@ func RegisterTools(s *mcp.Server, api API, cfg config.Config) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "get_cost",
+		Description: "Prices the net grid energy over a time range under the site's SCE TOU-D-4-9PM " +
+			"time-of-use plan, broken down by season and period (off_peak, mid_peak, on_peak, " +
+			"super_off_peak). Takes the same period or start/end arguments as get_history. " +
+			"Negative net_kwh is net export. Costs are retail-rate estimates: import and export " +
+			"are netted within each period, and the baseline credit is not applied, so treat " +
+			"them as an upper bound on the bill rather than the bill itself.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args historyArgs) (*mcp.CallToolResult, any, error) {
+		since, until, err := resolveRange(args)
+		if err != nil {
+			return nil, nil, err
+		}
+		c, err := api.Cost(ctx, since, until)
+		if err != nil {
+			return nil, nil, err
+		}
+		return jsonResult(c)
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_panel_health",
 		Description: "Checks whether any inverter has stopped producing while its peers continue, " +
 			"by comparing every panel against a high percentile of the array. " +

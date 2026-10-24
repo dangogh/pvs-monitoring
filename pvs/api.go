@@ -57,3 +57,31 @@ type InverterSeriesJSON struct {
 	Serial  string  `json:"serial"`
 	PowerKW float64 `json:"p"`
 }
+
+// CostLine is the net grid energy and its price within one tariff period,
+// summed across every stretch of the range that falls in that period.
+type CostLine struct {
+	Season string  `json:"season"`
+	Period string  `json:"period"`
+	PerKWh float64 `json:"per_kwh"`
+	// NetKWh is energy drawn from the grid less energy exported in the period.
+	// Negative means the period was a net export.
+	NetKWh float64 `json:"net_kwh"`
+	Cost   float64 `json:"cost"`
+}
+
+// CostResponse prices a range under a time-of-use plan.
+type CostResponse struct {
+	Since time.Time `json:"since"`
+	Until time.Time `json:"until"`
+	Plan  string    `json:"plan"`
+	// Timezone is the zone the plan's hours were evaluated in.
+	Timezone string     `json:"timezone"`
+	Lines    []CostLine `json:"lines"`
+	// EnergyCost is the sum of Lines. It nets import against export within each
+	// period at that period's retail price, and applies no baseline credit.
+	EnergyCost float64 `json:"energy_cost"`
+	// BaseCharge is the plan's fixed daily charge prorated over the range.
+	BaseCharge float64 `json:"base_charge"`
+	TotalCost  float64 `json:"total_cost"`
+}

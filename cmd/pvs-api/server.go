@@ -12,6 +12,7 @@ import (
 	"github.com/dangogh/pvs-monitoring/config"
 	"github.com/dangogh/pvs-monitoring/internal/version"
 	"github.com/dangogh/pvs-monitoring/pvs"
+	"github.com/dangogh/pvs-monitoring/rates"
 )
 
 type apiServer struct {
@@ -24,6 +25,7 @@ func (s *apiServer) routes() http.Handler {
 	mux.HandleFunc("GET /api/version", s.handleVersion)
 	mux.HandleFunc("GET /api/current", s.handleCurrent)
 	mux.HandleFunc("GET /api/data", s.handleData)
+	mux.HandleFunc("GET /api/cost", s.handleCost)
 	mux.HandleFunc("GET /api/devices", s.handleDevices)
 	mux.HandleFunc("GET /api/panel-health", s.handlePanelHealth)
 	mux.HandleFunc("GET /api/inverter-series", s.handleInverterSeries)
@@ -141,6 +143,36 @@ func (s *apiServer) handleData(w http.ResponseWriter, r *http.Request) {
 		resp.Current = &cr
 	}
 
+	writeJSON(w, resp)
+}
+
+func (s *apiServer) handleCost(w http.ResponseWriter, r *http.Request) {
+	since, until, err := parseTimeRange(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !until.After(since) {
+		http.Error(w, "until must be after since", http.StatusBadRequest)
+		return
+	}
+	settings, err := s.store.Settings(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// The plan's hours are wall-clock hours at the site, so a missing or bad
+	// timezone would silently price energy in the wrong period. Refuse instead.
+	loc, err := time.LoadLocation(settings[config.KeyTimezone])
+	if settings[config.KeyTimezone] == "" || err != nil {
+		http.Error(w, "site timezone is not configured", http.StatusConflict)
+		return
+	}
+	resp, err := pvs.ComputeCost(r.Context(), s.store, rates.TOUD49PM(), loc, since, until)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, resp)
 }
 

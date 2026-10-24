@@ -814,3 +814,44 @@ func TestHandleData_BackfilledQueryError(t *testing.T) {
 		t.Errorf("want 500, got %d", w.Code)
 	}
 }
+
+func TestHandleCost_OK(t *testing.T) {
+	loc, _ := time.LoadLocation("America/Los_Angeles")
+	day := time.Date(2026, 7, 1, 0, 0, 0, 0, loc)
+	store := &fakeStore{
+		settings: map[string]string{"timezone": "America/Los_Angeles"},
+		energy:   pvs.EnergyDelta{NetKWh: 1},
+	}
+	url := "/api/cost?since=" + itoa(day.Unix()) + "&until=" + itoa(day.AddDate(0, 0, 1).Unix())
+	w := httptest.NewRecorder()
+	newServer(store).handleCost(w, httptest.NewRequest(http.MethodGet, url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got pvs.CostResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// 1 kWh in each of the three summer-weekday segments: 0.33 + 0.59 + 0.33.
+	if want := 1.25; got.EnergyCost < want-1e-9 || got.EnergyCost > want+1e-9 {
+		t.Errorf("energy cost = %v, want %v", got.EnergyCost, want)
+	}
+}
+
+func TestHandleCost_NoTimezone(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{}}
+	w := httptest.NewRecorder()
+	newServer(store).handleCost(w, httptest.NewRequest(http.MethodGet, "/api/cost?since=1&until=100000", nil))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("want 409, got %d", w.Code)
+	}
+}
+
+func TestHandleCost_BadRange(t *testing.T) {
+	store := &fakeStore{settings: map[string]string{"timezone": "UTC"}}
+	w := httptest.NewRecorder()
+	newServer(store).handleCost(w, httptest.NewRequest(http.MethodGet, "/api/cost?since=100&until=100", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", w.Code)
+	}
+}

@@ -44,6 +44,7 @@ type API interface {
 	Current(ctx context.Context) (CurrentReading, error)
 	Data(ctx context.Context, since, until time.Time) (DataResponse, error)
 	PanelHealth(ctx context.Context) (PanelHealth, error)
+	Cost(ctx context.Context, since, until time.Time) (CostResponse, error)
 }
 
 // Client reads from a pvs-api instance over HTTP.
@@ -200,5 +201,16 @@ func (c *Client) Data(ctx context.Context, since, until time.Time) (DataResponse
 func (c *Client) PanelHealth(ctx context.Context) (PanelHealth, error) {
 	var out PanelHealth
 	err := c.get(ctx, "/api/panel-health", nil, &out)
+	return out, err
+}
+
+// Cost prices the given range under the site's time-of-use plan.
+func (c *Client) Cost(ctx context.Context, since, until time.Time) (CostResponse, error) {
+	q := url.Values{
+		"since": {strconv.FormatInt(since.Unix(), 10)},
+		"until": {strconv.FormatInt(until.Unix(), 10)},
+	}
+	var out CostResponse
+	err := c.get(ctx, "/api/cost", q, &out)
 	return out, err
 }
