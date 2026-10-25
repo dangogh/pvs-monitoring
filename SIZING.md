@@ -25,7 +25,7 @@ As of 2026-10-14 (after 117 days of operation):
 
 ## Provisioning Guidelines
 
-### Single-Host Deployment (helios-class)
+### Server-Class Host
 
 | Duration | Disk Required |
 |----------|---------------|
@@ -35,9 +35,9 @@ As of 2026-10-14 (after 117 days of operation):
 
 **Recommended:** 256 GB minimum for long-term retention + comfortable growth margin.
 
-### Raspberry Pi / solarwatch
+### Single-Board Computer / Embedded
 
-**Do not provision less than 32 GB.** solarwatch failed with 4 GB after ~4 months; even 16 GB is cutting it close.
+**Do not provision less than 32 GB.** Failures observed with 4 GB after ~4 months; even 16 GB is cutting it close.
 
 | Duration | Disk Required |
 |----------|---------------|

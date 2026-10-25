@@ -20,7 +20,7 @@ import (
 // reads over HTTP rather than opening SQLite. Reading a local copy of the
 // database would answer every question confidently from whenever that copy was
 // last written.
-const defaultAPIURL = "http://solar.local"
+const defaultAPIURL = "http://localhost:8080"
 
 // defaultName is the server name announced to the MCP client. Running one
 // instance per monitored array means two servers would otherwise announce the
