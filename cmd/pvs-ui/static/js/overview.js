@@ -786,7 +786,7 @@ export function initOverview() {
       state.isLive = true;
       hidePickers();
       updateNavButtons();
-      loadRange('today');
+      loadRange('past_24h');
       return;
     }
     // Any fixed range: load it, then loadRange/syncPickers reveals the pickers
