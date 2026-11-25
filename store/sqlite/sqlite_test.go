@@ -781,10 +781,8 @@ func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, n)
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			<-start // release all at once to maximise contention
 			s, err := Open(path)
 			if err != nil {
@@ -792,7 +790,7 @@ func TestConcurrentOpenMigratesWithoutRace(t *testing.T) {
 				return
 			}
 			_ = s.Close()
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -926,7 +924,7 @@ func TestRebuildRollupsWeightsByCoverage(t *testing.T) {
 	base := time.Unix(1790000000, 0).Truncate(time.Hour)
 
 	// 60 live 1 Hz samples at 10 kW -> 60 seconds of coverage.
-	for i := 0; i < 60; i++ {
+	for i := range 60 {
 		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
 			ReceivedAt: base.Add(time.Duration(i) * time.Second),
 			Time:       base.Add(time.Duration(i) * time.Second),
@@ -936,7 +934,7 @@ func TestRebuildRollupsWeightsByCoverage(t *testing.T) {
 	}
 	// 10 backfilled 1/min samples at 0 kW -> 600 seconds of coverage.
 	var backfilled []*pvs.Reading
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		at := base.Add(time.Duration(5+i) * time.Minute)
 		backfilled = append(backfilled, &pvs.Reading{
 			ReceivedAt: at, Time: at,
@@ -967,7 +965,7 @@ func TestRebuildRollupsUnweightedWhenAllLive(t *testing.T) {
 	defer s.Close() //nolint:errcheck
 
 	base := time.Unix(1790000000, 0).Truncate(time.Hour)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
 			ReceivedAt: base.Add(time.Duration(i) * time.Second),
 			Time:       base.Add(time.Duration(i) * time.Second),
@@ -1108,7 +1106,7 @@ func TestBackupToWritesConsistentCopy(t *testing.T) {
 	defer s.Close() //nolint:errcheck
 
 	base := time.Unix(1790000000, 0)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, s.SaveReading(ctx, &pvs.Reading{
 			ReceivedAt: base.Add(time.Duration(i) * time.Second),
 			Time:       base.Add(time.Duration(i) * time.Second),
