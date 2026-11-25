@@ -17,6 +17,56 @@ Run a single test:
 go test -race -run TestName ./pvs/
 ```
 
+## Working rules
+
+These rules apply to all changes in this repository.
+
+### Git
+
+- **Commit and push only when requested.** Finishing a change means leaving it in the working tree and reporting that. "Commit" means create a commit; "commit and push" means both. Do not push to `main` without explicit instruction.
+- Keep unrelated changes in separate commits. If a change mixes concerns, split it before committing.
+- Commit messages follow the existing style: `fix(scope): summary`, `add: ...`, `build(deps): ...`. Short imperative summary, body only when the why isn't obvious. If the user asks for a one-line message, give exactly that.
+- Never commit build artifacts or local files: the repo-root `sqlite3` binary, `coverage.out`, `bin/`, `dist/`, `config.yaml`, scratch SVG/CSV files. Check `git status` first and list anything untracked that you did not create in this session.
+- After any change merged to `main`, bump the version in `debian/changelog` (via `dch`). A repeated version number will not upgrade on the Raspberry Pi.
+
+### Verify facts
+
+- If a fact is uncertain (a timestamp, a host, a file location, a device address), check it or ask. Do not guess and present the guess as fact.
+- When a reported result conflicts with the data, check the data before revising or defending the earlier answer, and report what it shows.
+- For regressions, use `git bisect` rather than reasoning from memory about which commit broke it.
+
+### Times and arithmetic
+
+- All user-facing times, day boundaries, and sunrise/sunset use the **site's** timezone (`Config.Timezone`), not the machine running the query or the browser. Say which timezone you used.
+- Readings are 1 Hz on the WebSocket stream and 1/min or 5-minute on the device/meter data. When summarizing or comparing periods, state which resolution you used. Use 5-minute data for analyses unless another resolution is specified.
+- Verify durations and differences with code, not mental arithmetic (for example, 13:00–13:55 is 55 minutes).
+
+### Logging and output
+
+- Routine logs should be one summary line per cycle (for example, "pinged N inverters: X online, Y offline, Z unknown"), not one line per device.
+- Per-URL and per-request detail goes behind `-v` / debug, and it must include the URL and HTTP status when debugging a connection problem.
+- Outages must be visible in the UI as an outage. Do not draw a monitor-down period as a zero reading.
+
+### Schema
+
+- Fixed-shape fields are columns. Raw JSON is only for payloads that genuinely vary. Do not store a fixed record as a JSON blob.
+- Schema changes must work on existing installs: `config.SeedMissingSettings` handles settings, and the store must migrate, not assume an empty database.
+
+### Deployment and hosts
+
+- Development happens on a Mac, which runs the launchd service. Production runs on a Raspberry Pi running Raspberry Pi OS (systemd), installed from the deb package. The database is `/var/lib/pvs-monitor/readings.db` and the config is in `/etc/pvs-monitor/`. Deploy by copying the `.deb` to the Pi, then `sudo dpkg -i` and `sudo systemctl restart pvs-api pvs-ui`. Remote DB queries use `ssh <host> "sqlite3 ..."`.
+- Each deployment host is specific to its operator. Do not deploy to a host, or change its config, without asking the user first.
+- **Back up SQLite with `sqlite3` (`.backup` or `VACUUM INTO`), never with `cp`** while the daemon is writing. WAL mode means a file copy can be inconsistent.
+- Package installs must not break reinstall or upgrade. Do not ship files that `postinst` writes under `/etc` (see the dead-man switch section). Test reinstall after removing `/etc/pvs-monitor`.
+- Use `install.sh` or the deb package for the Pi. Do not hand-edit files on the Pi and expect them to survive an upgrade.
+- **Releases reach installed systems automatically.** Installed systems auto-update when a new version is published, so a published release can reach hosts that are not the one being worked on. Before tagging, building a release, or changing `debian/changelog` for release, confirm the change is tested and intended, and ask the user first. Never publish a release as a test. Each release must have a new version number, since the updater skips a version it has already installed.
+- Because of auto-update, changes that touch config formats, the database schema, or the service restart path need a migration that works on existing installs, and must be called out in the final report.
+
+### Tests
+
+- New store code needs tests. The SQLite store has a test suite under `store/sqlite`. Run `make test` before reporting a change as done.
+- Validate input ranges at the store boundary (for example, `since` must be before `until`).
+
 ## Architecture
 
 Four binaries sharing a SQLite database:

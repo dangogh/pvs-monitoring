@@ -39,8 +39,7 @@ func main() {
 	defer stop()
 	if err := run(os.Args[1:], os.Stderr, ctx); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "pvs-monitor: %v\n", err)
-		var exitErr *exitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exitError](err); ok {
 			os.Exit(exitErr.code)
 		}
 		os.Exit(1)

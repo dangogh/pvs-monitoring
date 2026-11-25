@@ -29,9 +29,9 @@ func TestWithHostname(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("substitutes title and heading", func(t *testing.T) {
-		got := string(withHostname(page, "helios"))
-		assert.Contains(t, got, "<title>Solar Monitor: helios</title>")
-		assert.Contains(t, got, "<h1>☀ Solar Monitor: helios</h1>")
+		got := string(withHostname(page, "pvs"))
+		assert.Contains(t, got, "<title>Solar Monitor: pvs</title>")
+		assert.Contains(t, got, "<h1>☀ Solar Monitor: pvs</h1>")
 		assert.NotContains(t, got, titleMarker)
 		assert.NotContains(t, got, headingMarker)
 	})
@@ -48,9 +48,9 @@ func TestWithHostname(t *testing.T) {
 	})
 
 	t.Run("substitutes each marker only once", func(t *testing.T) {
-		got := string(withHostname(page, "helios"))
-		assert.Equal(t, 1, strings.Count(got, "<title>Solar Monitor: helios</title>"))
-		assert.Equal(t, 1, strings.Count(got, "<h1>☀ Solar Monitor: helios</h1>"))
+		got := string(withHostname(page, "pvs"))
+		assert.Equal(t, 1, strings.Count(got, "<title>Solar Monitor: pvs</title>"))
+		assert.Equal(t, 1, strings.Count(got, "<h1>☀ Solar Monitor: pvs</h1>"))
 	})
 }
 

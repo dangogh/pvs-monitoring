@@ -232,7 +232,7 @@ func TestPanelHealthTool(t *testing.T) {
 	assert.Equal(t, []string{"E00121", "E00122"}, got.NotProducing)
 }
 
-// Observed against solarwatch, which runs pvs-api v1.13.1: the endpoint 404s
+// Observed against an older pvs-api (v1.13.1): the endpoint 404s
 // because that version predates it. The message must point at the version, not
 // at the network.
 func TestPanelHealthToolOnOldServer(t *testing.T) {
