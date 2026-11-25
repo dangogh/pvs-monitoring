@@ -75,6 +75,6 @@ func TestRunRejectsUnreadableCA(t *testing.T) {
 }
 
 func TestRunAcceptsNameAndInsecure(t *testing.T) {
-	err := run([]string{"--config", writeConfig(t, ""), "--name", "pvs-solarwatch", "--api", "https://127.0.0.1:1", "--insecure"}, io.Discard, noopTransport{})
+	err := run([]string{"--config", writeConfig(t, ""), "--name", "pvs-mcp-test", "--api", "https://127.0.0.1:1", "--insecure"}, io.Discard, noopTransport{})
 	assert.NoError(t, err)
 }

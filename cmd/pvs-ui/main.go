@@ -30,7 +30,7 @@ const (
 )
 
 // shortHostname returns the host's name without any domain suffix, so the title
-// reads "helios" rather than "helios.example.com". Empty if it can't be read.
+// reads "pvs" rather than "pvs.example.com". Empty if it can't be read.
 func shortHostname() string {
 	h, err := os.Hostname()
 	if err != nil {
@@ -43,7 +43,7 @@ func shortHostname() string {
 }
 
 // withHostname folds host into the page title and heading, giving
-// "Solar Monitor: helios". Returns the page unchanged when host is empty.
+// "Solar Monitor: pvs". Returns the page unchanged when host is empty.
 func withHostname(page []byte, host string) []byte {
 	if host == "" {
 		return page
