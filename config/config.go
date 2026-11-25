@@ -113,8 +113,8 @@ func systemTimezone() string {
 	// on Linux and macOS; its target's tail is the IANA zone name.
 	if target, err := os.Readlink("/etc/localtime"); err == nil {
 		const marker = "zoneinfo/"
-		if i := strings.Index(target, marker); i >= 0 {
-			return target[i+len(marker):]
+		if _, after, ok := strings.Cut(target, marker); ok {
+			return after
 		}
 	}
 	return ""
